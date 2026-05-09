@@ -14,6 +14,12 @@
     <h1>Kathyayini Matrimony</h1>
     <span>Admin Portal</span>
   </div>
+  <div class="header-search">
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Search by name, gothra, nakshatra, profession…">
+      <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Clear">✕</button>
+    </div>
+  </div>
   <div class="header-stats">
     <div class="stat-pill"><span class="dot bride"></span><span id="bride-count">—</span> Brides</div>
     <div class="stat-pill"><span class="dot groom"></span><span id="groom-count">—</span> Grooms</div>
@@ -22,14 +28,11 @@
       <span id="last-updated" style="color:var(--text-dim)">Loading…</span>
     </div>
     <button class="download-manager-btn" onclick="openDownloadManager()">⬇ File Manager</button>
+    <button id="privacy-btn" class="privacy-btn" onclick="togglePrivacy()">👁 Hide Details</button>
   </div>
 </header>
 
 <div class="controls">
-  <div class="search-box">
-    <input type="text" id="search-input" placeholder="Search by name, gothra, nakshatra, profession…">
-    <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Clear">✕</button>
-  </div>
   <div class="filter-group">
     <button class="filter-btn active" data-filter="all">All</button>
     <button class="filter-btn" data-filter="Bride">Brides</button>
@@ -87,7 +90,7 @@
       <div class="dl-intro">
         <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
           Click <strong>Download ZIP</strong> on any profile to get its photos and horoscope already renamed:<br>
-          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001_photo1.jpg &nbsp; KM001_photo2.jpg &nbsp; KM001_horoscope.pdf</code>
+          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001-Photo-1.jpg &nbsp; KM001-Photo-2.jpg &nbsp; KM001-horoscope.pdf</code>
         </p>
         <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/KM001/</code> — done.</p>
       </div>
