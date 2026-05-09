@@ -17,16 +17,18 @@
   <div class="header-stats">
     <div class="stat-pill"><span class="dot bride"></span><span id="bride-count">—</span> Brides</div>
     <div class="stat-pill"><span class="dot groom"></span><span id="groom-count">—</span> Grooms</div>
-    <div class="stat-pill" style="border-color: var(--gold-dim);">
+    <div class="stat-pill" style="border-color:var(--gold-dim);">
       <span style="color:var(--gold)">⟳</span>
       <span id="last-updated" style="color:var(--text-dim)">Loading…</span>
     </div>
+    <button class="download-manager-btn" onclick="openDownloadManager()">⬇ File Manager</button>
   </div>
 </header>
 
 <div class="controls">
   <div class="search-box">
     <input type="text" id="search-input" placeholder="Search by name, gothra, nakshatra, profession…">
+    <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Clear">✕</button>
   </div>
   <div class="filter-group">
     <button class="filter-btn active" data-filter="all">All</button>
@@ -57,9 +59,9 @@
   </div>
 </div>
 
-<!-- Detail Modal -->
+<!-- Profile Detail Modal -->
 <div class="modal-overlay" id="modal-overlay">
-  <div class="modal" id="modal">
+  <div class="modal">
     <div class="modal-header">
       <div>
         <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600" id="modal-name"></div>
@@ -71,6 +73,33 @@
   </div>
 </div>
 
+<!-- Download Manager Modal -->
+<div class="modal-overlay" id="dl-overlay">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600">File Download Manager</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Files auto-renamed with Unique ID — ready to drop into the profiles folder</div>
+      </div>
+      <button class="modal-close" onclick="closeDownloadManager()">✕</button>
+    </div>
+    <div class="modal-body" id="dl-body">
+      <div class="dl-intro">
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
+          Click <strong>Download ZIP</strong> on any profile to get its photos and horoscope already renamed:<br>
+          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001_photo1.jpg &nbsp; KM001_photo2.jpg &nbsp; KM001_horoscope.pdf</code>
+        </p>
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/KM001/</code> — done.</p>
+      </div>
+      <div class="dl-search-wrap">
+        <input type="text" id="dl-search" placeholder="Search by name or ID…" oninput="renderDlList()">
+      </div>
+      <div id="dl-list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
