@@ -22,7 +22,16 @@ function profileFolder(uid) {
 }
 
 function photoCandidates(uid, slot) {
-  return IMG_EXTENSIONS.map(ext => `${profileFolder(uid)}/photo${slot}.${ext}`);
+  const base = profileFolder(uid);
+  // Try multiple naming conventions: photo1.jpg, 1.jpg, Photo1.jpg, IMG_1.jpg etc.
+  const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
+  const paths = [];
+  for (const name of names) {
+    for (const ext of IMG_EXTENSIONS) {
+      paths.push(`${base}/${name}.${ext}`);
+    }
+  }
+  return paths;
 }
 
 function horoscopeCandidates(uid) {
@@ -410,30 +419,33 @@ async function downloadProfileZip(uid) {
     const zip = new JSZip();
     const folder = zip.folder(uid);
 
+    // Files named photo1/photo2/horoscope inside profiles/<UID>/ folder
+    // so the ZIP can be extracted directly into the GitHub repo
     const files = [
-      { url: p['Photo 1 - of Bride or Groom'], name: `${uid}_photo1` },
-      { url: p['Photo 2 - of Bride or Groom'], name: `${uid}_photo2` },
-      { url: p['Horoscope'],                   name: `${uid}_horoscope` },
+      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
+      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
+      { url: p['Horoscope'],                   name: 'horoscope' },
     ].filter(f => f.url && f.url.trim());
 
     let added = 0;
     for (const f of files) {
       try {
         const directUrl = driveDirectUrl(f.url);
-        // Use a CORS proxy to fetch the binary file
         const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
+        btn.textContent = `Fetching ${f.name}…`;
         const resp = await fetch(proxyUrl);
         if (!resp.ok) continue;
         const blob = await resp.blob();
         // Determine extension from MIME type or URL
         let ext = 'jpg';
         const mime = blob.type || '';
-        if (mime.includes('pdf'))  ext = 'pdf';
+        if (mime.includes('pdf'))       ext = 'pdf';
         else if (mime.includes('png'))  ext = 'png';
         else if (mime.includes('webp')) ext = 'webp';
         else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
         else ext = extFromUrl(f.url);
 
+        // file goes into profiles/UID/photo1.jpg — drop the whole zip into repo root
         folder.file(`${f.name}.${ext}`, blob);
         added++;
       } catch (e) { /* skip failed file */ }
@@ -449,7 +461,7 @@ async function downloadProfileZip(uid) {
     const content = await zip.generateAsync({ type: 'blob' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(content);
-    a.download = `${uid}_files.zip`;
+    a.download = `profiles_${uid}.zip`;  // Extract into repo root — creates profiles/UID/photo1.jpg
     a.click();
     URL.revokeObjectURL(a.href);
 
@@ -548,7 +560,8 @@ async function loadData() {
     document.getElementById('last-updated').textContent = 'Local Data';
 
     populateFilters();
-    filtered = [...allProfiles].sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
+    filtered = allProfiles.filter(p => p['Name'] && p['Name'].trim()).sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
+    allProfiles = allProfiles.filter(p => p['Name'] && p['Name'].trim());
     renderGrid();
   } catch(e) {
     document.getElementById('grid').innerHTML = `
