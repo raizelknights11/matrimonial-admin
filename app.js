@@ -1,19 +1,22 @@
 // =====================================================================
 // CONFIG
 // Each profile's files live in: ./profiles/<UniqueID>/
-//   photo1.jpg      first photo  (.jpg/.jpeg/.png/.webp)
-//   photo2.jpg      second photo (same)
-//   horoscope.*     any extension (.pdf/.jpg/.png/.webp)
+//   <UniqueID>-Photo-1.jpg    first photo  (.jpg/.jpeg/.png/.webp)
+//   <UniqueID>-Photo-2.jpg    second photo (same)
+//   <UniqueID>-horoscope.*    any extension (.pdf/.jpg/.png/.webp)
+//
+// If local files are missing, falls back to Google Drive URLs in CSV.
 // CSV: ./data/profiles.csv
 // =====================================================================
 
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
+const CSV_URL = './data/profiles.csv';
 const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
-let allProfiles = [];
-let filtered    = [];
+let allProfiles  = [];
+let filtered     = [];
 let activeFilter = 'all';
+let privacyMode  = false;  // hides phone & address when true
 
 // ── File path helpers ────────────────────────────────────────────────
 
@@ -21,21 +24,18 @@ function profileFolder(uid) {
   return `./profiles/${uid.trim()}`;
 }
 
+// Local candidates: <UID>-Photo-1.jpg, <UID>-Photo-1.jpeg, etc.
 function photoCandidates(uid, slot) {
   const base = profileFolder(uid);
-  // Try multiple naming conventions: photo1.jpg, 1.jpg, Photo1.jpg, IMG_1.jpg etc.
-  const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
-  const paths = [];
-  for (const name of names) {
-    for (const ext of IMG_EXTENSIONS) {
-      paths.push(`${base}/${name}.${ext}`);
-    }
-  }
-  return paths;
+  const u = uid.trim();
+  return IMG_EXTENSIONS.map(ext => `${base}/${u}-Photo-${slot}.${ext}`);
 }
 
+// Local candidates: <UID>-horoscope.pdf, <UID>-horoscope.jpg, etc.
 function horoscopeCandidates(uid) {
-  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/horoscope.${ext}`);
+  const base = profileFolder(uid);
+  const u = uid.trim();
+  return HORO_EXTENSIONS.map(ext => `${base}/${u}-horoscope.${ext}`);
 }
 
 async function urlExists(url) {
@@ -45,19 +45,28 @@ async function urlExists(url) {
   } catch { return false; }
 }
 
-async function findHoroscope(uid) {
+// Find horoscope: local first, then Drive URL from CSV as fallback
+async function findHoroscope(uid, driveUrl) {
   for (const url of horoscopeCandidates(uid)) {
     if (await urlExists(url)) return url;
   }
+  // Fallback: Google Drive
+  const fallback = driveViewUrl(driveUrl);
+  if (fallback) return fallback;
   return null;
 }
 
-// ── Image with fallback extensions ───────────────────────────────────
+// ── Image with local → Drive fallback ────────────────────────────────
+// localCandidates: UID-prefixed local paths tried first
+// driveUrl: raw CSV Google Drive URL used only if all local paths fail
 
-function buildImgWithFallback(candidates, placeholderSymbol) {
-  const candidatesAttr = candidates.join('|');
+function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
+  const all = [...localCandidates];
+  const driveFallback = driveViewUrl(driveUrl);
+  if (driveFallback) all.push(driveFallback);
+  const candidatesAttr = all.join('|');
   return `<img
-    src="${candidates[0]}"
+    src="${all[0]}"
     data-candidates="${candidatesAttr}"
     data-idx="0"
     onerror="tryNextImg(this,'${placeholderSymbol}')"
@@ -154,6 +163,29 @@ function extFromUrl(url) {
   return 'jpg';
 }
 
+// ── Privacy helpers ───────────────────────────────────────────────────
+
+function maskPhone(val) {
+  if (!val) return '—';
+  return privacyMode ? val.replace(/\d(?=\d{4})/g, '•') : val;
+}
+
+function maskAddress(val) {
+  if (!val) return '—';
+  if (!privacyMode) return val;
+  return val.trim().split(/[\s,]+/)[0] + ' …';
+}
+
+function togglePrivacy() {
+  privacyMode = !privacyMode;
+  const btn = document.getElementById('privacy-btn');
+  if (btn) {
+    btn.textContent = privacyMode ? '🔒 Details Hidden' : '👁 Hide Details';
+    btn.classList.toggle('privacy-active', privacyMode);
+  }
+  renderGrid();
+}
+
 // ── Card renderer ─────────────────────────────────────────────────────
 
 function createCard(p) {
@@ -164,15 +196,19 @@ function createCard(p) {
   const age    = getAge(p['Date Of Birth']);
   const symbol = isBride ? '♀' : '♂';
 
+  // Drive URLs from CSV — used only if local files are missing
+  const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
+  const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
+
   return `
     <div class="profile-card ${type}" id="${cardId}">
       <div class="card-images">
         <div class="image-slider" id="${cardId}-slider">
           <div class="image-slide active" data-idx="0">
-            ${buildImgWithFallback(photoCandidates(uid, 1), symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 1), drivePhoto1, symbol)}
           </div>
           <div class="image-slide" data-idx="1">
-            ${buildImgWithFallback(photoCandidates(uid, 2), symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 2), drivePhoto2, symbol)}
           </div>
           <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
           <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
@@ -249,9 +285,9 @@ function createCard(p) {
           <div class="detail-section">
             <div class="section-label">Contact</div>
             <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${p['Phone Number']||'—'}</div></div>
+              <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${maskPhone(p['Phone Number'])}</div></div>
               <div class="detail-item"><div class="detail-key">Email</div><div class="detail-val" style="word-break:break-all">${p['Email Address']||'—'}</div></div>
-              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address']||'—'}</div></div>
+              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${maskAddress(p['Address'])}</div></div>
             </div>
           </div>
         </div>
@@ -273,7 +309,7 @@ async function injectHoroscopeButtons() {
     const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
     const slot   = document.getElementById(`${cardId}-horo`);
     if (!slot) continue;
-    const url = await findHoroscope(uid);
+    const url = await findHoroscope(uid, p['Horoscope'] || '');
     if (url) slot.innerHTML = `<a class="horoscope-btn" href="${url}" target="_blank">✦ View Horoscope</a>`;
   }
 }
@@ -320,15 +356,24 @@ async function openModal(uid) {
     '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services'
   ]);
 
+  const sensitiveKeys = ['phone', 'address', 'mobile'];
+  const isSensitive = k => sensitiveKeys.some(s => k.toLowerCase().includes(s));
+
   const rows = Object.entries(p)
     .filter(([k,v]) => v && v.trim() && !skip.has(k))
-    .map(([k,v]) => `
+    .map(([k,v]) => {
+      let display = v;
+      if (privacyMode && isSensitive(k)) {
+        display = k.toLowerCase().includes('address') ? maskAddress(v) : maskPhone(v);
+      }
+      return `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g,' ').trim()}</div>
-        <div class="modal-val">${v}</div>
-      </div>`).join('');
+        <div class="modal-val">${display}</div>
+      </div>`;
+    }).join('');
 
-  const horoUrl = await findHoroscope(uid);
+  const horoUrl = await findHoroscope(uid, p['Horoscope'] || '');
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
@@ -419,12 +464,12 @@ async function downloadProfileZip(uid) {
     const zip = new JSZip();
     const folder = zip.folder(uid);
 
-    // Files named photo1/photo2/horoscope inside profiles/<UID>/ folder
-    // so the ZIP can be extracted directly into the GitHub repo
+    // Files named <UID>-Photo-1.jpg / <UID>-Photo-2.jpg / <UID>-horoscope.pdf
+    // so unzipping at repo root creates: profiles/<UID>/<UID>-Photo-1.jpg
     const files = [
-      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
-      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
-      { url: p['Horoscope'],                   name: 'horoscope' },
+      { url: p['Photo 1 - of Bride or Groom'], name: `${uid}-Photo-1` },
+      { url: p['Photo 2 - of Bride or Groom'], name: `${uid}-Photo-2` },
+      { url: p['Horoscope'],                   name: `${uid}-horoscope` },
     ].filter(f => f.url && f.url.trim());
 
     let added = 0;
