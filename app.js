@@ -1,22 +1,19 @@
 // =====================================================================
 // CONFIG
 // Each profile's files live in: ./profiles/<UniqueID>/
-//   <UniqueID>-Photo-1.jpg    first photo  (.jpg/.jpeg/.png/.webp)
-//   <UniqueID>-Photo-2.jpg    second photo (same)
-//   <UniqueID>-horoscope.*    any extension (.pdf/.jpg/.png/.webp)
-//
-// If local files are missing, falls back to Google Drive URLs in CSV.
+//   photo1.jpg      first photo  (.jpg/.jpeg/.png/.webp)
+//   photo2.jpg      second photo (same)
+//   horoscope.*     any extension (.pdf/.jpg/.png/.webp)
 // CSV: ./data/profiles.csv
 // =====================================================================
 
-const CSV_URL = './data/profiles.csv';
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
 const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
-let allProfiles  = [];
-let filtered     = [];
+let allProfiles = [];
+let filtered    = [];
 let activeFilter = 'all';
-let privacyMode  = false;  // hides phone & address when true
 
 // ── File path helpers ────────────────────────────────────────────────
 
@@ -24,18 +21,21 @@ function profileFolder(uid) {
   return `./profiles/${uid.trim()}`;
 }
 
-// Local candidates: <UID>-Photo-1.jpg, <UID>-Photo-1.jpeg, etc.
 function photoCandidates(uid, slot) {
   const base = profileFolder(uid);
-  const u = uid.trim();
-  return IMG_EXTENSIONS.map(ext => `${base}/${u}-Photo-${slot}.${ext}`);
+  // Try multiple naming conventions: photo1.jpg, 1.jpg, Photo1.jpg, IMG_1.jpg etc.
+  const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
+  const paths = [];
+  for (const name of names) {
+    for (const ext of IMG_EXTENSIONS) {
+      paths.push(`${base}/${name}.${ext}`);
+    }
+  }
+  return paths;
 }
 
-// Local candidates: <UID>-horoscope.pdf, <UID>-horoscope.jpg, etc.
 function horoscopeCandidates(uid) {
-  const base = profileFolder(uid);
-  const u = uid.trim();
-  return HORO_EXTENSIONS.map(ext => `${base}/${u}-horoscope.${ext}`);
+  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/horoscope.${ext}`);
 }
 
 async function urlExists(url) {
@@ -45,21 +45,17 @@ async function urlExists(url) {
   } catch { return false; }
 }
 
-// Find horoscope: local first, then Drive URL from CSV as fallback
-async function findHoroscope(uid, driveUrl) {
+async function findHoroscope(uid) {
   for (const url of horoscopeCandidates(uid)) {
     if (await urlExists(url)) return url;
   }
-  // Fallback: Google Drive
-  const fallback = driveViewUrl(driveUrl);
-  if (fallback) return fallback;
   return null;
 }
 
-// ── Image with local → Drive fallback ────────────────────────────────
-// localCandidates: UID-prefixed local paths tried first
-// driveUrl: raw CSV Google Drive URL used only if all local paths fail
+// ── Image with fallback extensions ───────────────────────────────────
 
+// localCandidates: UID-prefixed local paths tried first
+// driveUrl: raw Google Drive URL from CSV — used only if all local paths fail
 function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
   const all = [...localCandidates];
   const driveFallback = driveViewUrl(driveUrl);
@@ -70,11 +66,11 @@ function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
     data-candidates="${candidatesAttr}"
     data-idx="0"
     onerror="tryNextImg(this,'${placeholderSymbol}')"
-    style="width:100%;height:100%;object-fit:cover;display:block"
+    onclick="openLightbox(this)"
+    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;background:#1a100a08"
     alt="Profile photo"
   >`;
 }
-
 function tryNextImg(img, symbol) {
   const candidates = img.dataset.candidates.split('|');
   let idx = parseInt(img.dataset.idx) + 1;
@@ -163,29 +159,6 @@ function extFromUrl(url) {
   return 'jpg';
 }
 
-// ── Privacy helpers ───────────────────────────────────────────────────
-
-function maskPhone(val) {
-  if (!val) return '—';
-  return privacyMode ? val.replace(/\d(?=\d{4})/g, '•') : val;
-}
-
-function maskAddress(val) {
-  if (!val) return '—';
-  if (!privacyMode) return val;
-  return val.trim().split(/[\s,]+/)[0] + ' …';
-}
-
-function togglePrivacy() {
-  privacyMode = !privacyMode;
-  const btn = document.getElementById('privacy-btn');
-  if (btn) {
-    btn.textContent = privacyMode ? '🔒 Details Hidden' : '👁 Hide Details';
-    btn.classList.toggle('privacy-active', privacyMode);
-  }
-  renderGrid();
-}
-
 // ── Card renderer ─────────────────────────────────────────────────────
 
 function createCard(p) {
@@ -195,8 +168,6 @@ function createCard(p) {
   const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
   const age    = getAge(p['Date Of Birth']);
   const symbol = isBride ? '♀' : '♂';
-
-  // Drive URLs from CSV — used only if local files are missing
   const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
   const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
 
@@ -285,9 +256,9 @@ function createCard(p) {
           <div class="detail-section">
             <div class="section-label">Contact</div>
             <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${maskPhone(p['Phone Number'])}</div></div>
+              <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${p['Phone Number']||'—'}</div></div>
               <div class="detail-item"><div class="detail-key">Email</div><div class="detail-val" style="word-break:break-all">${p['Email Address']||'—'}</div></div>
-              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${maskAddress(p['Address'])}</div></div>
+              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address']||'—'}</div></div>
             </div>
           </div>
         </div>
@@ -309,7 +280,7 @@ async function injectHoroscopeButtons() {
     const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
     const slot   = document.getElementById(`${cardId}-horo`);
     if (!slot) continue;
-    const url = await findHoroscope(uid, p['Horoscope'] || '');
+    const url = await findHoroscope(uid);
     if (url) slot.innerHTML = `<a class="horoscope-btn" href="${url}" target="_blank">✦ View Horoscope</a>`;
   }
 }
@@ -356,24 +327,15 @@ async function openModal(uid) {
     '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services'
   ]);
 
-  const sensitiveKeys = ['phone', 'address', 'mobile'];
-  const isSensitive = k => sensitiveKeys.some(s => k.toLowerCase().includes(s));
-
   const rows = Object.entries(p)
     .filter(([k,v]) => v && v.trim() && !skip.has(k))
-    .map(([k,v]) => {
-      let display = v;
-      if (privacyMode && isSensitive(k)) {
-        display = k.toLowerCase().includes('address') ? maskAddress(v) : maskPhone(v);
-      }
-      return `
+    .map(([k,v]) => `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g,' ').trim()}</div>
-        <div class="modal-val">${display}</div>
-      </div>`;
-    }).join('');
+        <div class="modal-val">${v}</div>
+      </div>`).join('');
 
-  const horoUrl = await findHoroscope(uid, p['Horoscope'] || '');
+  const horoUrl = await findHoroscope(uid);
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
@@ -464,12 +426,12 @@ async function downloadProfileZip(uid) {
     const zip = new JSZip();
     const folder = zip.folder(uid);
 
-    // Files named <UID>-Photo-1.jpg / <UID>-Photo-2.jpg / <UID>-horoscope.pdf
-    // so unzipping at repo root creates: profiles/<UID>/<UID>-Photo-1.jpg
+    // Files named photo1/photo2/horoscope inside profiles/<UID>/ folder
+    // so the ZIP can be extracted directly into the GitHub repo
     const files = [
-      { url: p['Photo 1 - of Bride or Groom'], name: `${uid}-Photo-1` },
-      { url: p['Photo 2 - of Bride or Groom'], name: `${uid}-Photo-2` },
-      { url: p['Horoscope'],                   name: `${uid}-horoscope` },
+      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
+      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
+      { url: p['Horoscope'],                   name: 'horoscope' },
     ].filter(f => f.url && f.url.trim());
 
     let added = 0;
@@ -638,3 +600,100 @@ document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDownloadManager(); } });
 
 loadData();
+
+// ── Privacy helpers ───────────────────────────────────────────────────
+
+let privacyMode = false;
+
+function maskPhone(val) {
+  if (!val) return '—';
+  return privacyMode ? val.replace(/\d(?=\d{4})/g, '•') : val;
+}
+
+function maskAddress(val) {
+  if (!val) return '—';
+  if (!privacyMode) return val;
+  return val.trim().split(/[\s,]+/)[0] + ' …';
+}
+
+function togglePrivacy() {
+  privacyMode = !privacyMode;
+  const btn = document.getElementById('privacy-btn');
+  if (btn) {
+    btn.textContent = privacyMode ? '🔒 Details Hidden' : '👁 Hide Details';
+    btn.classList.toggle('privacy-active', privacyMode);
+  }
+  renderGrid();
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────
+
+// Inject the lightbox DOM once on page load
+(function createLightboxDOM() {
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
+      <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+      <button class="lightbox-arrow prev" id="lb-prev" onclick="lbPrev()">‹</button>
+      <img class="lightbox-img" id="lightbox-img" alt="Full size photo">
+      <button class="lightbox-arrow next" id="lb-next" onclick="lbNext()">›</button>
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>`;
+  document.body.appendChild(el.firstElementChild);
+})();
+
+// All images in the current card's slider — for prev/next navigation
+let _lbImages = [];
+let _lbIndex  = 0;
+
+function openLightbox(imgEl) {
+  // Collect sibling slides in the same slider
+  const slider = imgEl.closest('.image-slider');
+  const imgs = slider ? [...slider.querySelectorAll('.image-slide img')] : [imgEl];
+
+  _lbImages = imgs.map(i => i.src).filter(Boolean);
+  _lbIndex  = imgs.indexOf(imgEl);
+  if (_lbIndex < 0) _lbIndex = 0;
+
+  _lbShow();
+  document.getElementById('lightbox-overlay').classList.add('open');
+  document.addEventListener('keydown', _lbKeyHandler);
+}
+
+function _lbShow() {
+  const img = document.getElementById('lightbox-img');
+  const cap = document.getElementById('lightbox-caption');
+  img.style.opacity = '0';
+  img.src = _lbImages[_lbIndex];
+  img.onload = () => { img.style.opacity = '1'; };
+
+  // Show arrows only if there are multiple images
+  document.getElementById('lb-prev').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  document.getElementById('lb-next').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  cap.textContent = _lbImages.length > 1 ? `${_lbIndex + 1} / ${_lbImages.length}` : '';
+}
+
+function lbPrev() {
+  _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length;
+  _lbShow();
+}
+
+function lbNext() {
+  _lbIndex = (_lbIndex + 1) % _lbImages.length;
+  _lbShow();
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox-overlay').classList.remove('open');
+  document.removeEventListener('keydown', _lbKeyHandler);
+}
+
+function closeLightboxOnBg(e) {
+  if (e.target === document.getElementById('lightbox-overlay')) closeLightbox();
+}
+
+function _lbKeyHandler(e) {
+  if (e.key === 'Escape')      closeLightbox();
+  if (e.key === 'ArrowRight')  lbNext();
+  if (e.key === 'ArrowLeft')   lbPrev();
+}
