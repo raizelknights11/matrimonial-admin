@@ -28,7 +28,8 @@
       <span id="last-updated" style="color:var(--text-dim)">Loading…</span>
     </div>
     <button class="download-manager-btn" onclick="openDownloadManager()">⬇ File Manager</button>
-    <button id="privacy-btn" class="privacy-btn" onclick="togglePrivacy()">👁 Hide Details</button>
+    <button id="privacy-btn" class="privacy-btn" onclick="togglePrivacy()" style="display:none">👁 Hide Details</button>
+    <button id="logout-btn" class="logout-btn" onclick="logout()" style="display:none">↩ Logout</button>
   </div>
 </header>
 
@@ -90,7 +91,7 @@
       <div class="dl-intro">
         <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
           Click <strong>Download ZIP</strong> on any profile to get its photos and horoscope already renamed:<br>
-          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001-Photo-1.jpg &nbsp; KM001-Photo-2.jpg &nbsp; KM001-horoscope.pdf</code>
+          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001_photo1.jpg &nbsp; KM001_photo2.jpg &nbsp; KM001_horoscope.pdf</code>
         </p>
         <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/KM001/</code> — done.</p>
       </div>
