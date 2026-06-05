@@ -8,7 +8,7 @@ const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLu
 // 'admin' → sees everything including phone, address, email
 // 'guest' → HIDDEN_FOR_GUEST fields are masked
 const PASSWORDS = {
-  'Admin@KM2025': 'admin',   // ← change these passwords freely
+  'Kamala1970': 'admin',   // ← change these passwords freely
   'Guest@KM2025': 'guest',
 };
 
@@ -582,9 +582,6 @@ function initApp() {
     location.reload(); // simplest: reload — session is set, will skip login
     return;
   }
-  // Show/hide the privacy toggle based on role
-  const privBtn = document.getElementById('privacy-btn');
-  if (privBtn) privBtn.style.display = currentRole === 'admin' ? '' : 'none';
   // Show logout button
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
@@ -605,7 +602,9 @@ async function loadData() {
     const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
     document.getElementById('bride-count').textContent = brides;
     document.getElementById('groom-count').textContent = grooms;
-    document.getElementById('last-updated').textContent = 'Live Data';
+    const allCountEl = document.getElementById('all-count');
+    if (allCountEl) allCountEl.textContent = allProfiles.filter(p => p['Name'] && p['Name'].trim()).length;
+    // Hide last-updated pill — not shown in new layout
 
     populateFilters();
     filtered = allProfiles.filter(p => p['Name'] && p['Name'].trim()).sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
@@ -641,9 +640,9 @@ document.getElementById('caste-filter').addEventListener('change', applyFilters)
 document.getElementById('location-filter').addEventListener('change', applyFilters);
 document.getElementById('sort-select').addEventListener('change', applyFilters);
 
-document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
+document.querySelectorAll('.count-pill[data-filter]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.count-pill[data-filter]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     activeFilter = btn.dataset.filter;
     applyFilters();
@@ -778,13 +777,26 @@ let _lbImages = [];
 let _lbIndex  = 0;
 
 function openLightbox(imgEl) {
-  // Collect sibling slides in the same slider
+  // Collect images from all slides in order
   const slider = imgEl.closest('.image-slider');
-  const imgs = slider ? [...slider.querySelectorAll('.image-slide img')] : [imgEl];
+  const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
 
-  _lbImages = imgs.map(i => i.src).filter(Boolean);
-  _lbIndex  = imgs.indexOf(imgEl);
+  _lbImages = slides
+    .map(s => s.querySelector('img'))
+    .filter(Boolean)
+    .map(i => i.src)
+    .filter(Boolean);
+
+  // Index = which slide contains the clicked image
+  const clickedSlide = imgEl.closest('.image-slide');
+  _lbIndex = slides.indexOf(clickedSlide);
   if (_lbIndex < 0) _lbIndex = 0;
+
+  // Fallback: single image
+  if (!_lbImages.length) {
+    _lbImages = [imgEl.src];
+    _lbIndex  = 0;
+  }
 
   _lbShow();
   document.getElementById('lightbox-overlay').classList.add('open');
