@@ -1,20 +1,41 @@
 // =====================================================================
-// CONFIG
-// Each profile's files live in: ./profiles/<UniqueID>/
-//   photo1.jpg      first photo  (.jpg/.jpeg/.png/.webp)
-//   photo2.jpg      second photo (same)
-//   horoscope.*     any extension (.pdf/.jpg/.png/.webp)
-// CSV: ./data/profiles.csv
+// CONFIG — edit this block to manage access
 // =====================================================================
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
+
+// ── Access levels ─────────────────────────────────────────────────────
+// 'admin' → sees everything including phone, address, email
+// 'guest' → HIDDEN_FOR_GUEST fields are masked
+const PASSWORDS = {
+  'Admin@KM2025': 'admin',   // ← change these passwords freely
+  'Guest@KM2025': 'guest',
+};
+
+// ── Fields to hide from guest access ─────────────────────────────────
+// Add or remove CSV column names — must match the header exactly
+const HIDDEN_FOR_GUEST = [
+  'Phone Number',
+  'Address',
+  'Email Address',
+];
+
+// ── How masked values appear to guests ───────────────────────────────
+const MASK_FN = {
+  'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),           // ••••••7890
+  'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',        // Bangalore …
+  'Email Address': v => { const [u,d]=v.split('@'); return u.slice(0,2)+'••@'+(d||''); },
+};
+
+// =====================================================================
+
 const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
-let allProfiles = [];
-let filtered    = [];
+let allProfiles  = [];
+let filtered     = [];
 let activeFilter = 'all';
-
+let currentRole  = null;  // null = not logged in | 'admin' | 'guest'
 // ── File path helpers ────────────────────────────────────────────────
 
 function profileFolder(uid) {
@@ -332,10 +353,10 @@ async function openModal(uid) {
     .map(([k,v]) => `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g,' ').trim()}</div>
-        <div class="modal-val">${v}</div>
+        <div class="modal-val">${fieldValue(k, v)}</div>
       </div>`).join('');
 
-  const horoUrl = await findHoroscope(uid);
+  const horoUrl = await findHoroscope(uid, p['Horoscope'] || '');
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
@@ -553,6 +574,26 @@ function populateFilters() {
 
 // ── Load data ─────────────────────────────────────────────────────────
 
+// ── App init ──────────────────────────────────────────────────────────
+
+function initApp() {
+  // Rebuild the full page if we replaced it with the login screen
+  if (document.getElementById('login-screen')) {
+    location.reload(); // simplest: reload — session is set, will skip login
+    return;
+  }
+  // Show/hide the privacy toggle based on role
+  const privBtn = document.getElementById('privacy-btn');
+  if (privBtn) privBtn.style.display = currentRole === 'admin' ? '' : 'none';
+  // Show logout button
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.style.display = '';
+    logoutBtn.textContent = `↩ ${currentRole === 'admin' ? 'Admin' : 'Guest'}`;
+  }
+  loadData();
+}
+
 async function loadData() {
   try {
     const resp = await fetch(CSV_URL);
@@ -564,7 +605,7 @@ async function loadData() {
     const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
     document.getElementById('bride-count').textContent = brides;
     document.getElementById('groom-count').textContent = grooms;
-    document.getElementById('last-updated').textContent = 'Local Data';
+    document.getElementById('last-updated').textContent = 'Live Data';
 
     populateFilters();
     filtered = allProfiles.filter(p => p['Name'] && p['Name'].trim()).sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
@@ -574,13 +615,25 @@ async function loadData() {
     document.getElementById('grid').innerHTML = `
       <div class="loading-state" style="grid-column:1/-1">
         <div style="font-size:36px;margin-bottom:12px">⚠</div>
-        <div style="color:var(--rose)">Could not load data/profiles.csv</div>
+        <div style="color:var(--rose)">Could not load profiles</div>
         <div style="font-size:12px;margin-top:8px;color:var(--text-dim)">
-          Make sure <strong>data/profiles.csv</strong> is in the repo.<br>Error: ${e.message}
+          Error: ${e.message}
         </div>
       </div>`;
   }
 }
+
+// ── Startup ───────────────────────────────────────────────────────────
+
+(function startup() {
+  const savedRole = sessionStorage.getItem('km_role');
+  if (savedRole && Object.values(PASSWORDS).includes(savedRole)) {
+    currentRole = savedRole;
+    initApp();
+  } else {
+    showLoginScreen();
+  }
+})();
 
 // ── Event listeners ───────────────────────────────────────────────────
 
@@ -599,31 +652,109 @@ document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDownloadManager(); } });
 
-loadData();
+// ── Access control ────────────────────────────────────────────────────
 
-// ── Privacy helpers ───────────────────────────────────────────────────
-
-let privacyMode = false;
-
-function maskPhone(val) {
+// Returns display value for a field — masked if guest + field is in HIDDEN_FOR_GUEST
+function fieldValue(key, val) {
   if (!val) return '—';
-  return privacyMode ? val.replace(/\d(?=\d{4})/g, '•') : val;
+  if (currentRole === 'admin') return val;
+  if (HIDDEN_FOR_GUEST.includes(key)) {
+    const fn = MASK_FN[key];
+    return fn ? fn(val) : '••••••';
+  }
+  return val;
 }
 
-function maskAddress(val) {
-  if (!val) return '—';
-  if (!privacyMode) return val;
-  return val.trim().split(/[\s,]+/)[0] + ' …';
+function maskPhone(val)   { return fieldValue('Phone Number', val); }
+function maskAddress(val) { return fieldValue('Address', val); }
+
+// ── Login screen ──────────────────────────────────────────────────────
+
+function showLoginScreen() {
+  document.body.innerHTML = `
+    <div id="login-screen" style="
+      min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:#f7f4ef;font-family:'DM Sans',sans-serif;">
+      <div style="
+        background:#fff;border:1px solid #d6cfc4;border-radius:20px;
+        padding:40px 36px;width:100%;max-width:380px;text-align:center;
+        box-shadow:0 12px 48px rgba(26,18,8,0.1);">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:30px;color:#8b5e1a;margin-bottom:4px">
+          Kathyayini Matrimony
+        </div>
+        <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#7a6a54;margin-bottom:32px">
+          Admin Portal
+        </div>
+        <input
+          type="password"
+          id="login-input"
+          placeholder="Enter password"
+          onkeydown="if(event.key==='Enter')doLogin()"
+          style="width:100%;padding:12px 16px;border:1px solid #d6cfc4;border-radius:10px;
+            font-family:'DM Sans',sans-serif;font-size:14px;color:#1a1208;
+            background:#f7f4ef;outline:none;margin-bottom:10px;box-sizing:border-box;"
+          onfocus="this.style.borderColor='#c49a50'"
+          onblur="this.style.borderColor='#d6cfc4'"
+        >
+        <div id="login-error" style="font-size:12px;color:#9e3040;min-height:18px;margin-bottom:10px"></div>
+        <button onclick="doLogin()" style="
+          width:100%;background:#8b5e1a;color:#fff8ef;border:none;border-radius:10px;
+          padding:12px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;
+          cursor:pointer;">
+          Enter
+        </button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById('login-input')?.focus(), 50);
 }
+
+function doLogin() {
+  const pw   = document.getElementById('login-input')?.value?.trim();
+  const role = PASSWORDS[pw];
+  if (role) {
+    currentRole = role;
+    sessionStorage.setItem('km_role', role);
+    initApp();
+  } else {
+    const err = document.getElementById('login-error');
+    if (err) err.textContent = 'Incorrect password. Please try again.';
+    const inp = document.getElementById('login-input');
+    if (inp) { inp.value = ''; inp.focus(); }
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem('km_role');
+  currentRole = null;
+  location.reload();
+}
+
+// ── Privacy toggle (admin can preview guest view) ─────────────────────
+
+let _previewGuest = false;
 
 function togglePrivacy() {
-  privacyMode = !privacyMode;
+  if (currentRole !== 'admin') return; // guests can't toggle
+  _previewGuest = !_previewGuest;
   const btn = document.getElementById('privacy-btn');
   if (btn) {
-    btn.textContent = privacyMode ? '🔒 Details Hidden' : '👁 Hide Details';
-    btn.classList.toggle('privacy-active', privacyMode);
+    btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
+    btn.classList.toggle('privacy-active', _previewGuest);
   }
   renderGrid();
+}
+
+// Override fieldValue to respect preview mode
+const _origFieldValue = fieldValue;
+function fieldValue(key, val) {
+  if (!val) return '—';
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  if (effectiveRole === 'admin') return val;
+  if (HIDDEN_FOR_GUEST.includes(key)) {
+    const fn = MASK_FN[key];
+    return fn ? fn(val) : '••••••';
+  }
+  return val;
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────
