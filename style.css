@@ -775,3 +775,18 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   z-index: 2001;
   white-space: nowrap;
 }
+
+.logout-btn {
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.logout-btn:hover { border-color: var(--rose); color: var(--rose); }
