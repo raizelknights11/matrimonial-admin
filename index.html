@@ -9,47 +9,51 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <h1>Kathyayini Matrimony</h1>
-    <span>Admin Portal</span>
-  </div>
-  <div class="header-search">
+<!-- Brand header — scrolls away -->
+<div class="brand-header">
+  <h1>Kathyayini Matrimony</h1>
+  <span>Admin Portal</span>
+</div>
+
+<!-- Sticky controls bar -->
+<div class="controls-bar" id="controls-bar">
+  <div class="controls-inner">
+    <!-- Search -->
     <div class="search-box">
       <input type="text" id="search-input" placeholder="Search by name, gothra, nakshatra, profession…">
       <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Clear">✕</button>
     </div>
-  </div>
-  <div class="header-stats">
-    <div class="stat-pill"><span class="dot bride"></span><span id="bride-count">—</span> Brides</div>
-    <div class="stat-pill"><span class="dot groom"></span><span id="groom-count">—</span> Grooms</div>
-    <div class="stat-pill" style="border-color:var(--gold-dim);">
-      <span style="color:var(--gold)">⟳</span>
-      <span id="last-updated" style="color:var(--text-dim)">Loading…</span>
-    </div>
-    <button class="download-manager-btn" onclick="openDownloadManager()">⬇ File Manager</button>
-    <button id="privacy-btn" class="privacy-btn" onclick="togglePrivacy()" style="display:none">👁 Hide Details</button>
-    <button id="logout-btn" class="logout-btn" onclick="logout()" style="display:none">↩ Logout</button>
-  </div>
-</header>
 
-<div class="controls">
-  <div class="filter-group">
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="Bride">Brides</button>
-    <button class="filter-btn" data-filter="Groom">Grooms</button>
+    <!-- Bride / Groom count-filter buttons -->
+    <button class="count-pill active" data-filter="all" id="pill-all">
+      All <span class="pill-num" id="all-count">—</span>
+    </button>
+    <button class="count-pill" data-filter="Bride" id="pill-bride">
+      <span class="dot bride"></span>Brides <span class="pill-num" id="bride-count">—</span>
+    </button>
+    <button class="count-pill" data-filter="Groom" id="pill-groom">
+      <span class="dot groom"></span>Grooms <span class="pill-num" id="groom-count">—</span>
+    </button>
+
+    <!-- Filters -->
+    <select class="filter-btn" id="caste-filter">
+      <option value="">All Sub-Castes</option>
+    </select>
+    <select class="filter-btn" id="location-filter">
+      <option value="">All Locations</option>
+    </select>
+    <select class="filter-btn" id="sort-select">
+      <option value="newest">Newest First</option>
+      <option value="oldest">Oldest First</option>
+      <option value="name">Name A–Z</option>
+    </select>
+
+    <!-- Right-side actions -->
+    <div class="controls-actions">
+      <button class="download-manager-btn" onclick="openDownloadManager()">⬇ Files</button>
+      <button id="logout-btn" class="logout-btn" onclick="logout()" style="display:none">↩ Logout</button>
+    </div>
   </div>
-  <select class="filter-btn" id="caste-filter">
-    <option value="">All Sub-Castes</option>
-  </select>
-  <select class="filter-btn" id="location-filter">
-    <option value="">All Locations</option>
-  </select>
-  <select class="filter-btn" id="sort-select">
-    <option value="newest">Newest First</option>
-    <option value="oldest">Oldest First</option>
-    <option value="name">Name A–Z</option>
-  </select>
 </div>
 
 <div class="results-bar">
@@ -91,9 +95,9 @@
       <div class="dl-intro">
         <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
           Click <strong>Download ZIP</strong> on any profile to get its photos and horoscope already renamed:<br>
-          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">KM001_photo1.jpg &nbsp; KM001_photo2.jpg &nbsp; KM001_horoscope.pdf</code>
+          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">UID-Photo-1.jpg &nbsp; UID-Photo-2.jpg &nbsp; UID-horoscope.pdf</code>
         </p>
-        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/KM001/</code> — done.</p>
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/UID/</code> — done.</p>
       </div>
       <div class="dl-search-wrap">
         <input type="text" id="dl-search" placeholder="Search by name or ID…" oninput="renderDlList()">
