@@ -110,6 +110,24 @@ body {
 .dot.bride { background: var(--bride-color); }
 .dot.groom { background: var(--groom-color); }
 
+.pdf-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--text-muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pdf-btn:hover { border-color: var(--gold-dim); color: var(--gold); background: #fdf6e8; }
+
 .download-manager-btn {
   background: var(--gold);
   color: #fff;
@@ -636,7 +654,25 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   .controls-inner { padding: 8px 12px; gap: 6px; }
   .controls-actions { margin-left: 0; }
   .count-pill { padding: 5px 10px; font-size: 11px; }
-  .download-manager-btn { font-size: 12px; padding: 7px 12px; }
+  .pdf-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--text-muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pdf-btn:hover { border-color: var(--gold-dim); color: var(--gold); background: #fdf6e8; }
+
+.download-manager-btn { font-size: 12px; padding: 7px 12px; }
 
   .controls { padding: 12px 16px; gap: 8px; }
   .search-box { min-width: 100%; width: 100%; }
