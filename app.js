@@ -1,41 +1,20 @@
 // =====================================================================
-// CONFIG — edit this block to manage access
+// CONFIG
+// Each profile's files live in: ./profiles/<UniqueID>/
+//   photo1.jpg      first photo  (.jpg/.jpeg/.png/.webp)
+//   photo2.jpg      second photo (same)
+//   horoscope.*     any extension (.pdf/.jpg/.png/.webp)
+// CSV: ./data/profiles.csv
 // =====================================================================
 
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
-
-// ── Access levels ─────────────────────────────────────────────────────
-// 'admin' → sees everything including phone, address, email
-// 'guest' → HIDDEN_FOR_GUEST fields are masked
-const PASSWORDS = {
-  'Kamala1970': 'admin',   // ← change these passwords freely
-  'Guest@KM2025': 'guest',
-};
-
-// ── Fields to hide from guest access ─────────────────────────────────
-// Add or remove CSV column names — must match the header exactly
-const HIDDEN_FOR_GUEST = [
-  'Phone Number',
-  'Address',
-  'Email Address',
-];
-
-// ── How masked values appear to guests ───────────────────────────────
-const MASK_FN = {
-  'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),           // ••••••7890
-  'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',        // Bangalore …
-  'Email Address': v => { const [u,d]=v.split('@'); return u.slice(0,2)+'••@'+(d||''); },
-};
-
-// =====================================================================
-
+const CSV_URL = './data/profiles.csv';
 const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
-let allProfiles  = [];
-let filtered     = [];
+let allProfiles = [];
+let filtered    = [];
 let activeFilter = 'all';
-let currentRole  = null;  // null = not logged in | 'admin' | 'guest'
+
 // ── File path helpers ────────────────────────────────────────────────
 
 function profileFolder(uid) {
@@ -66,32 +45,32 @@ async function urlExists(url) {
   } catch { return false; }
 }
 
-async function findHoroscope(uid) {
+async function findHoroscope(uid, driveUrl) {
   for (const url of horoscopeCandidates(uid)) {
     if (await urlExists(url)) return url;
+  }
+  // Fallback: Drive URL from CSV
+  if (driveUrl) {
+    const dv = driveViewUrl(driveUrl);
+    if (dv) return dv;
   }
   return null;
 }
 
 // ── Image with fallback extensions ───────────────────────────────────
 
-// localCandidates: UID-prefixed local paths tried first
-// driveUrl: raw Google Drive URL from CSV — used only if all local paths fail
-function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
-  const all = [...localCandidates];
-  const driveFallback = driveViewUrl(driveUrl);
-  if (driveFallback) all.push(driveFallback);
-  const candidatesAttr = all.join('|');
+function buildImgWithFallback(candidates, placeholderSymbol) {
+  const candidatesAttr = candidates.join('|');
   return `<img
-    src="${all[0]}"
+    src="${candidates[0]}"
     data-candidates="${candidatesAttr}"
     data-idx="0"
     onerror="tryNextImg(this,'${placeholderSymbol}')"
-    onclick="openLightbox(this)"
-    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;background:#1a100a08"
+    style="width:100%;height:100%;object-fit:cover;display:block"
     alt="Profile photo"
   >`;
 }
+
 function tryNextImg(img, symbol) {
   const candidates = img.dataset.candidates.split('|');
   let idx = parseInt(img.dataset.idx) + 1;
@@ -189,18 +168,16 @@ function createCard(p) {
   const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
   const age    = getAge(p['Date Of Birth']);
   const symbol = isBride ? '♀' : '♂';
-  const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
-  const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
 
   return `
     <div class="profile-card ${type}" id="${cardId}">
       <div class="card-images">
         <div class="image-slider" id="${cardId}-slider">
           <div class="image-slide active" data-idx="0">
-            ${buildImgWithFallback(photoCandidates(uid, 1), drivePhoto1, symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 1), symbol)}
           </div>
           <div class="image-slide" data-idx="1">
-            ${buildImgWithFallback(photoCandidates(uid, 2), drivePhoto2, symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 2), symbol)}
           </div>
           <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
           <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
@@ -288,7 +265,8 @@ function createCard(p) {
           <span id="${cardId}-horo">
             <button class="horoscope-btn" style="opacity:0.4;cursor:not-allowed" disabled>✦ No Horoscope</button>
           </span>
-          <button class="contact-btn" onclick="openModal('${uid}')">⊞ Full Details</button>
+          <button class="contact-btn" onclick="openModal('${uid}')">⊞ Details</button>
+          <button class="pdf-btn" onclick="generateProfilePDF('${uid}')" title="Download profile as PDF">📄 PDF</button>
         </div>
       </div>
     </div>
@@ -353,10 +331,10 @@ async function openModal(uid) {
     .map(([k,v]) => `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g,' ').trim()}</div>
-        <div class="modal-val">${fieldValue(k, v)}</div>
+        <div class="modal-val">${v}</div>
       </div>`).join('');
 
-  const horoUrl = await findHoroscope(uid, p['Horoscope'] || '');
+  const horoUrl = await findHoroscope(uid);
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
@@ -375,131 +353,245 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
-// ── Download Manager ──────────────────────────────────────────────────
+// ── PDF Generator ────────────────────────────────────────────────────
+// Builds a styled HTML page and opens the browser print dialog.
+// The user saves as PDF — filename suggested via <title>.
+// Photos: local files first (same fallback chain as cards), then Drive.
 
-function openDownloadManager() {
-  renderDlList();
-  document.getElementById('dl-overlay').classList.add('open');
-}
-
-function closeDownloadManager() {
-  document.getElementById('dl-overlay').classList.remove('open');
-}
-
-document.getElementById('dl-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closeDownloadManager();
-});
-
-function renderDlList() {
-  const query = (document.getElementById('dl-search')?.value || '').toLowerCase();
-  const profiles = allProfiles.filter(p =>
-    !query ||
-    (p['Name'] || '').toLowerCase().includes(query) ||
-    (p['Unique ID'] || '').toLowerCase().includes(query)
-  );
-
-  const list = document.getElementById('dl-list');
-  if (!profiles.length) {
-    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim)">No profiles found</div>`;
-    return;
-  }
-
-  list.innerHTML = profiles.map(p => {
-    const uid  = p['Unique ID'].trim();
-    const name = p['Name'] || '—';
-    const photo1 = p['Photo 1 - of Bride or Groom'];
-    const photo2 = p['Photo 2 - of Bride or Groom'];
-    const horo   = p['Horoscope'];
-
-    const tags = [
-      photo1 ? `<span class="dl-tag photo">photo1</span>` : '',
-      photo2 ? `<span class="dl-tag photo">photo2</span>` : '',
-      horo   ? `<span class="dl-tag horo">horoscope</span>` : '',
-    ].filter(Boolean).join('');
-
-    const hasAny = photo1 || photo2 || horo;
-
-    return `
-      <div class="dl-row">
-        <div class="dl-info">
-          <div class="dl-name">${name}</div>
-          <div class="dl-uid">${uid}</div>
-          <div class="dl-files">${tags || '<span style="font-size:11px;color:var(--text-dim)">No files in sheet</span>'}</div>
-        </div>
-        <button class="dl-btn" ${hasAny ? '' : 'disabled'}
-          onclick="downloadProfileZip('${uid}')">
-          ⬇ ZIP
-        </button>
-      </div>
-    `;
-  }).join('');
-}
-
-async function downloadProfileZip(uid) {
+async function generateProfilePDF(uid) {
   const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
   if (!p) return;
 
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Fetching…';
+  const isBride  = p['Filling the Form Of'] === 'Bride';
+  const accentCol = isBride ? '#9e3040' : '#1f4f8a';
+  const typeLabel = p['Filling the Form Of'] || '';
+  const age       = getAge(p['Date Of Birth']);
+  const filename  = uid + '-profile';
 
-  try {
-    const zip = new JSZip();
-    const folder = zip.folder(uid);
-
-    // Files named photo1/photo2/horoscope inside profiles/<UID>/ folder
-    // so the ZIP can be extracted directly into the GitHub repo
-    const files = [
-      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
-      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
-      { url: p['Horoscope'],                   name: 'horoscope' },
-    ].filter(f => f.url && f.url.trim());
-
-    let added = 0;
-    for (const f of files) {
-      try {
-        const directUrl = driveDirectUrl(f.url);
-        const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
-        btn.textContent = `Fetching ${f.name}…`;
-        const resp = await fetch(proxyUrl);
-        if (!resp.ok) continue;
-        const blob = await resp.blob();
-        // Determine extension from MIME type or URL
-        let ext = 'jpg';
-        const mime = blob.type || '';
-        if (mime.includes('pdf'))       ext = 'pdf';
-        else if (mime.includes('png'))  ext = 'png';
-        else if (mime.includes('webp')) ext = 'webp';
-        else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
-        else ext = extFromUrl(f.url);
-
-        // file goes into profiles/UID/photo1.jpg — drop the whole zip into repo root
-        folder.file(`${f.name}.${ext}`, blob);
-        added++;
-      } catch (e) { /* skip failed file */ }
+  // ── Resolve photo URLs (local first, Drive fallback) ─────────────────
+  async function resolveImg(slot, driveUrl) {
+    const localCandidates = photoCandidates(uid, slot);
+    for (const url of localCandidates) {
+      if (await urlExists(url)) return url;
     }
-
-    if (added === 0) {
-      alert('Could not fetch any files. Make sure Google Drive links are set to "Anyone with the link can view".');
-      btn.disabled = false;
-      btn.textContent = '⬇ ZIP';
-      return;
-    }
-
-    const content = await zip.generateAsync({ type: 'blob' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(content);
-    a.download = `profiles_${uid}.zip`;  // Extract into repo root — creates profiles/UID/photo1.jpg
-    a.click();
-    URL.revokeObjectURL(a.href);
-
-  } catch (e) {
-    alert('Download failed: ' + e.message);
+    const dv = driveViewUrl(driveUrl);
+    return dv || null;
   }
 
-  btn.disabled = false;
-  btn.textContent = '⬇ ZIP';
+  const photo1Url = await resolveImg(1, p['Photo 1 - of Bride or Groom'] || '');
+  const photo2Url = await resolveImg(2, p['Photo 2 - of Bride or Groom'] || '');
+  const horoUrl   = await findHoroscope(uid);
+
+  // Convert image URL to base64 so it embeds properly in the print window
+  async function toBase64(url) {
+    if (!url) return null;
+    try {
+      const proxyUrl = url.includes('drive.google')
+        ? 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url)
+        : url;
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      return await new Promise(res => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.readAsDataURL(blob);
+      });
+    } catch { return null; }
+  }
+
+  const [b64Photo1, b64Photo2] = await Promise.all([
+    toBase64(photo1Url),
+    toBase64(photo2Url),
+  ]);
+
+  // ── Build photo HTML ─────────────────────────────────────────────────
+  const photoBlock = [b64Photo1, b64Photo2]
+    .filter(Boolean)
+    .map(src => `<img src="${src}" class="profile-photo">`)
+    .join('');
+
+  // ── Build detail rows ────────────────────────────────────────────────
+  const SKIP = new Set([
+    'Photo 1 - of Bride or Groom', 'Photo 2 - of Bride or Groom', 'Horoscope', 'Timestamp',
+    '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services'
+  ]);
+
+  const SECTIONS = [
+    { label: 'Personal', keys: [
+      ['Date Of Birth','DOB'], ['Place of Birth','Birth Place'],
+      ['Gothra','Gothra'], ['Sub Caste','Sub-Caste'],
+      ['ಮಠ - Mata','Mata'], ['Charana','Charana'],
+      ['Rashi','Rashi'], ['Nakshatra','Nakshatra'],
+      ['Height (in feet) - example 5 / 5`2 / 5`11', 'Height'],
+    ]},
+    { label: 'Professional', keys: [
+      ['Education ','Education'],['Education','Education'],
+      ['Work Field','Field'],['Mention your degrees ','Degrees'],['Mention your degrees','Degrees'],
+      ['Currently Working-In(Company Name) and As(Position)','Company / Role'],
+      ['Salary(LPA)','Salary (LPA)'],
+    ]},
+    { label: 'Family', keys: [
+      ['Father\'s Name','Father'],['Father\'s Occupation ','Father Occ.'],['Father\'s Occupation','Father Occ.'],
+      ['Mother\'s Name','Mother'],['Siblings','Siblings'],['Father\'s Native','Father\'s Native'],
+    ]},
+    { label: 'Preferences', keys: [
+      ['Staying In','Currently In'],['Planning To Relocate','Relocation'],
+      ['Age Gap','Age Gap'],['Abroad Relocation ','Abroad'],['Abroad Relocation','Abroad'],
+      ['Language Preference ','Language'],['Language Preference','Language'],
+      ['Personal Habits','Habits'],['Will agree on Same Gothra','Same Gothra'],
+      ['Will agree on any Bhramins and Mata','Any Brahmin'],
+    ]},
+    { label: 'Contact', keys: [
+      ['Phone Number','Phone'],['Email Address','Email'],['Address','Address'],
+    ]},
+  ];
+
+  const seen = new Set();
+  function sectionRows(keys) {
+    return keys.map(([csvKey, label]) => {
+      const val = p[csvKey];
+      if (!val || !val.trim() || seen.has(csvKey)) return '';
+      seen.add(csvKey);
+      return `<tr><td class="k">${label}</td><td class="v">${val}</td></tr>`;
+    }).join('');
+  }
+
+  const sectionsHtml = SECTIONS.map(s => {
+    const rows = sectionRows(s.keys);
+    if (!rows) return '';
+    return `
+      <tr class="section-head"><td colspan="2">${s.label}</td></tr>
+      ${rows}`;
+  }).join('');
+
+  // ── Horoscope note ────────────────────────────────────────────────────
+  const horoNote = horoUrl
+    ? `<p class="horo-note">Horoscope attached: <em>${uid}-horoscope</em></p>`
+    : '';
+
+  // ── Print window ──────────────────────────────────────────────────────
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${filename}</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1208; background: #fff; }
+
+    /* ── Header ── */
+    .pdf-header {
+      display: flex; align-items: flex-start; gap: 20px;
+      border-bottom: 2px solid ${accentCol}; padding-bottom: 14px; margin-bottom: 16px;
+    }
+    .photos { display: flex; gap: 10px; flex-shrink: 0; }
+    .profile-photo {
+      width: 110px; height: 140px; object-fit: contain;
+      border: 1px solid #d6cfc4; border-radius: 6px; background: #f5f0ea;
+    }
+    .header-text { flex: 1; }
+    .org-name {
+      font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: #8b5e1a; margin-bottom: 6px; font-weight: 600;
+    }
+    .profile-name {
+      font-size: 24px; font-weight: 700; color: #1a1208;
+      font-family: Georgia, serif; line-height: 1.2; margin-bottom: 6px;
+    }
+    .type-badge {
+      display: inline-block; padding: 3px 12px; border-radius: 20px;
+      font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+      background: ${accentCol}18; color: ${accentCol}; border: 1px solid ${accentCol}50;
+      margin-bottom: 8px;
+    }
+    .quick-facts { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+    .qf { font-size: 11px; color: #4a3c2c; }
+    .qf span { font-weight: 600; color: #1a1208; }
+    .uid-badge {
+      margin-top: 10px; font-size: 10px; color: #7a6a54;
+      letter-spacing: 1px; font-family: monospace;
+    }
+
+    /* ── Details table ── */
+    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    tr { break-inside: avoid; }
+    td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #ede8e0; }
+    td.k {
+      width: 32%; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: #7a6a54; font-weight: 500; padding-top: 6px;
+    }
+    td.v { font-size: 11px; color: #1a1208; line-height: 1.5; }
+    tr.section-head td {
+      background: ${accentCol}10; color: ${accentCol}; font-size: 9px;
+      font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      padding: 6px 8px 4px; border-bottom: 1px solid ${accentCol}30;
+    }
+
+    /* ── Footer ── */
+    .pdf-footer {
+      margin-top: 18px; padding-top: 10px; border-top: 1px solid #d6cfc4;
+      font-size: 9px; color: #a89080; display: flex; justify-content: space-between;
+    }
+    .horo-note {
+      margin-top: 12px; font-size: 10px; color: #4a3c2c;
+      padding: 6px 10px; background: #fdf6e8; border: 1px solid #c49a50;
+      border-radius: 4px; break-inside: avoid;
+    }
+  </style>
+</head>
+<body>
+
+<div class="pdf-header">
+  <div class="photos">${photoBlock || '<div style="width:110px;height:140px;border:1px solid #d6cfc4;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#c49a50;font-size:32px;background:#f5f0ea">${isBride ? '♀' : '♂'}</div>'}</div>
+  <div class="header-text">
+    <div class="org-name">Kathyayini Matrimony</div>
+    <div class="profile-name">${p['Name'] || '—'}</div>
+    <div class="type-badge">${typeLabel}</div>
+    <div class="quick-facts">
+      ${age !== '—' ? `<div class="qf">Age <span>${age}</span></div>` : ''}
+      ${p['Date Of Birth'] ? `<div class="qf">DOB <span>${p['Date Of Birth']}</span></div>` : ''}
+      ${p['Staying In'] ? `<div class="qf">Location <span>${p['Staying In']}</span></div>` : ''}
+      ${p['Work Field'] ? `<div class="qf">Field <span>${p['Work Field']}</span></div>` : ''}
+    </div>
+    <div class="uid-badge">${uid}</div>
+  </div>
+</div>
+
+<table>${sectionsHtml}</table>
+
+${horoNote}
+
+<div class="pdf-footer">
+  <span>Kathyayini Matrimony — Confidential</span>
+  <span>${uid}</span>
+  <span>${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+</div>
+
+<script>
+  // Wait for images to load then print
+  const imgs = document.querySelectorAll('img');
+  if (imgs.length === 0) {
+    window.print();
+  } else {
+    let loaded = 0;
+    imgs.forEach(img => {
+      if (img.complete) { loaded++; if (loaded === imgs.length) window.print(); }
+      else {
+        img.onload = img.onerror = () => { loaded++; if (loaded === imgs.length) window.print(); };
+      }
+    });
+  }
+<\/script>
+</body>
+</html>`);
+  win.document.close();
 }
+
+// ── Kept for Escape key handler ────────────────────────────────────────
+function closeDownloadManager() {}
 
 // ── Search clear button ───────────────────────────────────────────────
 
@@ -574,23 +666,6 @@ function populateFilters() {
 
 // ── Load data ─────────────────────────────────────────────────────────
 
-// ── App init ──────────────────────────────────────────────────────────
-
-function initApp() {
-  // Rebuild the full page if we replaced it with the login screen
-  if (document.getElementById('login-screen')) {
-    location.reload(); // simplest: reload — session is set, will skip login
-    return;
-  }
-  // Show logout button
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) {
-    logoutBtn.style.display = '';
-    logoutBtn.textContent = `↩ ${currentRole === 'admin' ? 'Admin' : 'Guest'}`;
-  }
-  loadData();
-}
-
 async function loadData() {
   try {
     const resp = await fetch(CSV_URL);
@@ -602,9 +677,7 @@ async function loadData() {
     const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
     document.getElementById('bride-count').textContent = brides;
     document.getElementById('groom-count').textContent = grooms;
-    const allCountEl = document.getElementById('all-count');
-    if (allCountEl) allCountEl.textContent = allProfiles.filter(p => p['Name'] && p['Name'].trim()).length;
-    // Hide last-updated pill — not shown in new layout
+    document.getElementById('last-updated').textContent = 'Local Data';
 
     populateFilters();
     filtered = allProfiles.filter(p => p['Name'] && p['Name'].trim()).sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
@@ -614,25 +687,13 @@ async function loadData() {
     document.getElementById('grid').innerHTML = `
       <div class="loading-state" style="grid-column:1/-1">
         <div style="font-size:36px;margin-bottom:12px">⚠</div>
-        <div style="color:var(--rose)">Could not load profiles</div>
+        <div style="color:var(--rose)">Could not load data/profiles.csv</div>
         <div style="font-size:12px;margin-top:8px;color:var(--text-dim)">
-          Error: ${e.message}
+          Make sure <strong>data/profiles.csv</strong> is in the repo.<br>Error: ${e.message}
         </div>
       </div>`;
   }
 }
-
-// ── Startup ───────────────────────────────────────────────────────────
-
-(function startup() {
-  const savedRole = sessionStorage.getItem('km_role');
-  if (savedRole && Object.values(PASSWORDS).includes(savedRole)) {
-    currentRole = savedRole;
-    initApp();
-  } else {
-    showLoginScreen();
-  }
-})();
 
 // ── Event listeners ───────────────────────────────────────────────────
 
@@ -640,9 +701,9 @@ document.getElementById('caste-filter').addEventListener('change', applyFilters)
 document.getElementById('location-filter').addEventListener('change', applyFilters);
 document.getElementById('sort-select').addEventListener('change', applyFilters);
 
-document.querySelectorAll('.count-pill[data-filter]').forEach(btn => {
+document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.count-pill[data-filter]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     activeFilter = btn.dataset.filter;
     applyFilters();
@@ -651,192 +712,4 @@ document.querySelectorAll('.count-pill[data-filter]').forEach(btn => {
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDownloadManager(); } });
 
-// ── Access control ────────────────────────────────────────────────────
-
-// Returns display value for a field — masked if guest + field is in HIDDEN_FOR_GUEST
-function fieldValue(key, val) {
-  if (!val) return '—';
-  if (currentRole === 'admin') return val;
-  if (HIDDEN_FOR_GUEST.includes(key)) {
-    const fn = MASK_FN[key];
-    return fn ? fn(val) : '••••••';
-  }
-  return val;
-}
-
-function maskPhone(val)   { return fieldValue('Phone Number', val); }
-function maskAddress(val) { return fieldValue('Address', val); }
-
-// ── Login screen ──────────────────────────────────────────────────────
-
-function showLoginScreen() {
-  document.body.innerHTML = `
-    <div id="login-screen" style="
-      min-height:100vh;display:flex;align-items:center;justify-content:center;
-      background:#f7f4ef;font-family:'DM Sans',sans-serif;">
-      <div style="
-        background:#fff;border:1px solid #d6cfc4;border-radius:20px;
-        padding:40px 36px;width:100%;max-width:380px;text-align:center;
-        box-shadow:0 12px 48px rgba(26,18,8,0.1);">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:30px;color:#8b5e1a;margin-bottom:4px">
-          Kathyayini Matrimony
-        </div>
-        <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#7a6a54;margin-bottom:32px">
-          Admin Portal
-        </div>
-        <input
-          type="password"
-          id="login-input"
-          placeholder="Enter password"
-          onkeydown="if(event.key==='Enter')doLogin()"
-          style="width:100%;padding:12px 16px;border:1px solid #d6cfc4;border-radius:10px;
-            font-family:'DM Sans',sans-serif;font-size:14px;color:#1a1208;
-            background:#f7f4ef;outline:none;margin-bottom:10px;box-sizing:border-box;"
-          onfocus="this.style.borderColor='#c49a50'"
-          onblur="this.style.borderColor='#d6cfc4'"
-        >
-        <div id="login-error" style="font-size:12px;color:#9e3040;min-height:18px;margin-bottom:10px"></div>
-        <button onclick="doLogin()" style="
-          width:100%;background:#8b5e1a;color:#fff8ef;border:none;border-radius:10px;
-          padding:12px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;
-          cursor:pointer;">
-          Enter
-        </button>
-      </div>
-    </div>`;
-  setTimeout(() => document.getElementById('login-input')?.focus(), 50);
-}
-
-function doLogin() {
-  const pw   = document.getElementById('login-input')?.value?.trim();
-  const role = PASSWORDS[pw];
-  if (role) {
-    currentRole = role;
-    sessionStorage.setItem('km_role', role);
-    initApp();
-  } else {
-    const err = document.getElementById('login-error');
-    if (err) err.textContent = 'Incorrect password. Please try again.';
-    const inp = document.getElementById('login-input');
-    if (inp) { inp.value = ''; inp.focus(); }
-  }
-}
-
-function logout() {
-  sessionStorage.removeItem('km_role');
-  currentRole = null;
-  location.reload();
-}
-
-// ── Privacy toggle (admin can preview guest view) ─────────────────────
-
-let _previewGuest = false;
-
-function togglePrivacy() {
-  if (currentRole !== 'admin') return; // guests can't toggle
-  _previewGuest = !_previewGuest;
-  const btn = document.getElementById('privacy-btn');
-  if (btn) {
-    btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
-    btn.classList.toggle('privacy-active', _previewGuest);
-  }
-  renderGrid();
-}
-
-// Override fieldValue to respect preview mode
-const _origFieldValue = fieldValue;
-function fieldValue(key, val) {
-  if (!val) return '—';
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-  if (effectiveRole === 'admin') return val;
-  if (HIDDEN_FOR_GUEST.includes(key)) {
-    const fn = MASK_FN[key];
-    return fn ? fn(val) : '••••••';
-  }
-  return val;
-}
-
-// ── Lightbox ──────────────────────────────────────────────────────────
-
-// Inject the lightbox DOM once on page load
-(function createLightboxDOM() {
-  const el = document.createElement('div');
-  el.innerHTML = `
-    <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
-      <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-      <button class="lightbox-arrow prev" id="lb-prev" onclick="lbPrev()">‹</button>
-      <img class="lightbox-img" id="lightbox-img" alt="Full size photo">
-      <button class="lightbox-arrow next" id="lb-next" onclick="lbNext()">›</button>
-      <div class="lightbox-caption" id="lightbox-caption"></div>
-    </div>`;
-  document.body.appendChild(el.firstElementChild);
-})();
-
-// All images in the current card's slider — for prev/next navigation
-let _lbImages = [];
-let _lbIndex  = 0;
-
-function openLightbox(imgEl) {
-  // Collect images from all slides in order
-  const slider = imgEl.closest('.image-slider');
-  const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
-
-  _lbImages = slides
-    .map(s => s.querySelector('img'))
-    .filter(Boolean)
-    .map(i => i.src)
-    .filter(Boolean);
-
-  // Index = which slide contains the clicked image
-  const clickedSlide = imgEl.closest('.image-slide');
-  _lbIndex = slides.indexOf(clickedSlide);
-  if (_lbIndex < 0) _lbIndex = 0;
-
-  // Fallback: single image
-  if (!_lbImages.length) {
-    _lbImages = [imgEl.src];
-    _lbIndex  = 0;
-  }
-
-  _lbShow();
-  document.getElementById('lightbox-overlay').classList.add('open');
-  document.addEventListener('keydown', _lbKeyHandler);
-}
-
-function _lbShow() {
-  const img = document.getElementById('lightbox-img');
-  const cap = document.getElementById('lightbox-caption');
-  img.style.opacity = '0';
-  img.src = _lbImages[_lbIndex];
-  img.onload = () => { img.style.opacity = '1'; };
-
-  // Show arrows only if there are multiple images
-  document.getElementById('lb-prev').style.display = _lbImages.length > 1 ? 'flex' : 'none';
-  document.getElementById('lb-next').style.display = _lbImages.length > 1 ? 'flex' : 'none';
-  cap.textContent = _lbImages.length > 1 ? `${_lbIndex + 1} / ${_lbImages.length}` : '';
-}
-
-function lbPrev() {
-  _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length;
-  _lbShow();
-}
-
-function lbNext() {
-  _lbIndex = (_lbIndex + 1) % _lbImages.length;
-  _lbShow();
-}
-
-function closeLightbox() {
-  document.getElementById('lightbox-overlay').classList.remove('open');
-  document.removeEventListener('keydown', _lbKeyHandler);
-}
-
-function closeLightboxOnBg(e) {
-  if (e.target === document.getElementById('lightbox-overlay')) closeLightbox();
-}
-
-function _lbKeyHandler(e) {
-  if (e.key === 'Escape')      closeLightbox();
-  if (e.key === 'ArrowRight')  lbNext();
-  if (e.key === 'ArrowLeft')   lbPrev();
-}
+loadData();
