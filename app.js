@@ -8,7 +8,7 @@
 // =====================================================================
 // ./data/profiles.csv
 
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
+const CSV_URL = './data/profiles.csv';
 const IMG_EXTENSIONS  = ['pdf','jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
