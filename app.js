@@ -6,9 +6,10 @@
 //   horoscope.*     any extension (.pdf/.jpg/.png/.webp)
 // CSV: ./data/profiles.csv
 // =====================================================================
+// ./data/profiles.csv
 
-const CSV_URL = './data/profiles.csv';
-const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
+const IMG_EXTENSIONS  = ['pdf','jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
 let allProfiles = [];
@@ -23,19 +24,14 @@ function profileFolder(uid) {
 
 function photoCandidates(uid, slot) {
   const base = profileFolder(uid);
-  // Try multiple naming conventions: photo1.jpg, 1.jpg, Photo1.jpg, IMG_1.jpg etc.
-  const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
-  const paths = [];
-  for (const name of names) {
-    for (const ext of IMG_EXTENSIONS) {
-      paths.push(`${base}/${name}.${ext}`);
-    }
-  }
-  return paths;
+  const u = uid.trim();
+  // Primary: <UID>-Photo-1.jpg convention
+  return IMG_EXTENSIONS.map(ext => `${base}/${u}-Photo-${slot}.${ext}`);
 }
 
 function horoscopeCandidates(uid) {
-  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/horoscope.${ext}`);
+  const u = uid.trim();
+  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/${u}-horoscope.${ext}`);
 }
 
 async function urlExists(url) {
@@ -49,7 +45,6 @@ async function findHoroscope(uid, driveUrl) {
   for (const url of horoscopeCandidates(uid)) {
     if (await urlExists(url)) return url;
   }
-  // Fallback: Drive URL from CSV
   if (driveUrl) {
     const dv = driveViewUrl(driveUrl);
     if (dv) return dv;
@@ -59,14 +54,18 @@ async function findHoroscope(uid, driveUrl) {
 
 // ── Image with fallback extensions ───────────────────────────────────
 
-function buildImgWithFallback(candidates, placeholderSymbol) {
-  const candidatesAttr = candidates.join('|');
+function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
+  const all = [...localCandidates];
+  const driveFallback = driveViewUrl(driveUrl);
+  if (driveFallback) all.push(driveFallback);
+  const candidatesAttr = all.join('|');
   return `<img
-    src="${candidates[0]}"
+    src="${all[0]}"
     data-candidates="${candidatesAttr}"
     data-idx="0"
     onerror="tryNextImg(this,'${placeholderSymbol}')"
-    style="width:100%;height:100%;object-fit:cover;display:block"
+    onclick="openLightbox(this)"
+    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;background:#f5f0ea"
     alt="Profile photo"
   >`;
 }
@@ -174,10 +173,10 @@ function createCard(p) {
       <div class="card-images">
         <div class="image-slider" id="${cardId}-slider">
           <div class="image-slide active" data-idx="0">
-            ${buildImgWithFallback(photoCandidates(uid, 1), symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 1), p['Photo 1 - of Bride or Groom'] || '', symbol)}
           </div>
           <div class="image-slide" data-idx="1">
-            ${buildImgWithFallback(photoCandidates(uid, 2), symbol)}
+            ${buildImgWithFallback(photoCandidates(uid, 2), p['Photo 2 - of Bride or Groom'] || '', symbol)}
           </div>
           <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
           <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
@@ -353,65 +352,50 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
-// ── PDF Generator ────────────────────────────────────────────────────
-// Builds a styled HTML page and opens the browser print dialog.
-// The user saves as PDF — filename suggested via <title>.
-// Photos: local files first (same fallback chain as cards), then Drive.
+// ── PDF Generator ─────────────────────────────────────────────────────
 
 async function generateProfilePDF(uid) {
   const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
   if (!p) return;
 
-  const isBride  = p['Filling the Form Of'] === 'Bride';
+  const isBride   = p['Filling the Form Of'] === 'Bride';
   const accentCol = isBride ? '#9e3040' : '#1f4f8a';
   const typeLabel = p['Filling the Form Of'] || '';
   const age       = getAge(p['Date Of Birth']);
   const filename  = uid + '-profile';
 
-  // ── Resolve photo URLs (local first, Drive fallback) ─────────────────
+  // Resolve photo URLs: local first, Drive fallback
   async function resolveImg(slot, driveUrl) {
-    const localCandidates = photoCandidates(uid, slot);
-    for (const url of localCandidates) {
+    for (const url of photoCandidates(uid, slot)) {
       if (await urlExists(url)) return url;
     }
-    const dv = driveViewUrl(driveUrl);
-    return dv || null;
+    return driveViewUrl(driveUrl) || null;
   }
 
   const photo1Url = await resolveImg(1, p['Photo 1 - of Bride or Groom'] || '');
   const photo2Url = await resolveImg(2, p['Photo 2 - of Bride or Groom'] || '');
-  const horoUrl   = await findHoroscope(uid);
+  const horoUrl   = await findHoroscope(uid, p['Horoscope'] || '');
 
-  // Convert image URL to base64 so it embeds properly in the print window
+  // Convert URL to base64 for embedding in print window
   async function toBase64(url) {
     if (!url) return null;
     try {
-      const proxyUrl = url.includes('drive.google')
+      const fetchUrl = url.includes('drive.google')
         ? 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url)
         : url;
-      const resp = await fetch(proxyUrl);
+      const resp = await fetch(fetchUrl);
       if (!resp.ok) return null;
       const blob = await resp.blob();
-      return await new Promise(res => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.readAsDataURL(blob);
-      });
+      return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
     } catch { return null; }
   }
 
-  const [b64Photo1, b64Photo2] = await Promise.all([
-    toBase64(photo1Url),
-    toBase64(photo2Url),
-  ]);
+  const [b64p1, b64p2] = await Promise.all([toBase64(photo1Url), toBase64(photo2Url)]);
 
-  // ── Build photo HTML ─────────────────────────────────────────────────
-  const photoBlock = [b64Photo1, b64Photo2]
-    .filter(Boolean)
+  const photoBlock = [b64p1, b64p2].filter(Boolean)
     .map(src => `<img src="${src}" class="profile-photo">`)
     .join('');
 
-  // ── Build detail rows ────────────────────────────────────────────────
   const SKIP = new Set([
     'Photo 1 - of Bride or Groom', 'Photo 2 - of Bride or Groom', 'Horoscope', 'Timestamp',
     '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services'
@@ -423,17 +407,18 @@ async function generateProfilePDF(uid) {
       ['Gothra','Gothra'], ['Sub Caste','Sub-Caste'],
       ['ಮಠ - Mata','Mata'], ['Charana','Charana'],
       ['Rashi','Rashi'], ['Nakshatra','Nakshatra'],
-      ['Height (in feet) - example 5 / 5`2 / 5`11', 'Height'],
+      ["Height (in feet) - example 5 / 5`2 / 5`11",'Height'],
     ]},
     { label: 'Professional', keys: [
       ['Education ','Education'],['Education','Education'],
-      ['Work Field','Field'],['Mention your degrees ','Degrees'],['Mention your degrees','Degrees'],
+      ['Work Field','Field'],
+      ['Mention your degrees ','Degrees'],['Mention your degrees','Degrees'],
       ['Currently Working-In(Company Name) and As(Position)','Company / Role'],
       ['Salary(LPA)','Salary (LPA)'],
     ]},
     { label: 'Family', keys: [
-      ['Father\'s Name','Father'],['Father\'s Occupation ','Father Occ.'],['Father\'s Occupation','Father Occ.'],
-      ['Mother\'s Name','Mother'],['Siblings','Siblings'],['Father\'s Native','Father\'s Native'],
+      ["Father's Name",'Father'],["Father's Occupation ",'Father Occ.'],["Father's Occupation",'Father Occ.'],
+      ["Mother's Name",'Mother'],['Siblings','Siblings'],["Father's Native","Father's Native"],
     ]},
     { label: 'Preferences', keys: [
       ['Staying In','Currently In'],['Planning To Relocate','Relocation'],
@@ -460,92 +445,50 @@ async function generateProfilePDF(uid) {
   const sectionsHtml = SECTIONS.map(s => {
     const rows = sectionRows(s.keys);
     if (!rows) return '';
-    return `
-      <tr class="section-head"><td colspan="2">${s.label}</td></tr>
-      ${rows}`;
+    return `<tr class="section-head"><td colspan="2">${s.label}</td></tr>${rows}`;
   }).join('');
 
-  // ── Horoscope note ────────────────────────────────────────────────────
   const horoNote = horoUrl
-    ? `<p class="horo-note">Horoscope attached: <em>${uid}-horoscope</em></p>`
-    : '';
+    ? `<p class="horo-note">✦ Horoscope on file: <em>${uid}-horoscope</em></p>` : '';
 
-  // ── Print window ──────────────────────────────────────────────────────
   const win = window.open('', '_blank');
+  if (!win) { alert('Please allow popups for this site to generate PDFs.'); return; }
+
   win.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <title>${filename}</title>
   <style>
-    @page { size: A4; margin: 18mm 16mm; }
+    @page { size: A4; margin: 16mm 14mm; }
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1208; background: #fff; }
-
-    /* ── Header ── */
-    .pdf-header {
-      display: flex; align-items: flex-start; gap: 20px;
-      border-bottom: 2px solid ${accentCol}; padding-bottom: 14px; margin-bottom: 16px;
-    }
-    .photos { display: flex; gap: 10px; flex-shrink: 0; }
-    .profile-photo {
-      width: 110px; height: 140px; object-fit: contain;
-      border: 1px solid #d6cfc4; border-radius: 6px; background: #f5f0ea;
-    }
-    .header-text { flex: 1; }
-    .org-name {
-      font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
-      color: #8b5e1a; margin-bottom: 6px; font-weight: 600;
-    }
-    .profile-name {
-      font-size: 24px; font-weight: 700; color: #1a1208;
-      font-family: Georgia, serif; line-height: 1.2; margin-bottom: 6px;
-    }
-    .type-badge {
-      display: inline-block; padding: 3px 12px; border-radius: 20px;
-      font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-      background: ${accentCol}18; color: ${accentCol}; border: 1px solid ${accentCol}50;
-      margin-bottom: 8px;
-    }
-    .quick-facts { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
-    .qf { font-size: 11px; color: #4a3c2c; }
-    .qf span { font-weight: 600; color: #1a1208; }
-    .uid-badge {
-      margin-top: 10px; font-size: 10px; color: #7a6a54;
-      letter-spacing: 1px; font-family: monospace;
-    }
-
-    /* ── Details table ── */
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    tr { break-inside: avoid; }
-    td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid #ede8e0; }
-    td.k {
-      width: 32%; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
-      color: #7a6a54; font-weight: 500; padding-top: 6px;
-    }
-    td.v { font-size: 11px; color: #1a1208; line-height: 1.5; }
-    tr.section-head td {
-      background: ${accentCol}10; color: ${accentCol}; font-size: 9px;
-      font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
-      padding: 6px 8px 4px; border-bottom: 1px solid ${accentCol}30;
-    }
-
-    /* ── Footer ── */
-    .pdf-footer {
-      margin-top: 18px; padding-top: 10px; border-top: 1px solid #d6cfc4;
-      font-size: 9px; color: #a89080; display: flex; justify-content: space-between;
-    }
-    .horo-note {
-      margin-top: 12px; font-size: 10px; color: #4a3c2c;
-      padding: 6px 10px; background: #fdf6e8; border: 1px solid #c49a50;
-      border-radius: 4px; break-inside: avoid;
-    }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1208; background:#fff; }
+    .pdf-header { display:flex; align-items:flex-start; gap:20px; border-bottom:2px solid ${accentCol}; padding-bottom:14px; margin-bottom:16px; }
+    .photos { display:flex; gap:10px; flex-shrink:0; }
+    .profile-photo { width:110px; height:140px; object-fit:contain; border:1px solid #d6cfc4; border-radius:6px; background:#f5f0ea; }
+    .no-photo { width:110px; height:140px; border:1px solid #d6cfc4; border-radius:6px; background:#f5f0ea; display:flex; align-items:center; justify-content:center; font-size:40px; color:#c49a50; }
+    .header-text { flex:1; }
+    .org-name { font-size:10px; letter-spacing:2.5px; text-transform:uppercase; color:#8b5e1a; margin-bottom:6px; font-weight:600; }
+    .profile-name { font-size:24px; font-weight:700; color:#1a1208; font-family:Georgia,serif; line-height:1.2; margin-bottom:8px; }
+    .type-badge { display:inline-block; padding:3px 12px; border-radius:20px; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; background:${accentCol}18; color:${accentCol}; border:1px solid ${accentCol}50; margin-bottom:10px; }
+    .quick-facts { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+    .qf { font-size:11px; color:#4a3c2c; } .qf span { font-weight:600; color:#1a1208; }
+    .uid-badge { font-size:10px; color:#7a6a54; letter-spacing:1px; font-family:monospace; }
+    table { width:100%; border-collapse:collapse; }
+    tr { break-inside:avoid; }
+    td { padding:5px 8px; vertical-align:top; border-bottom:1px solid #ede8e0; }
+    td.k { width:32%; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#7a6a54; font-weight:500; padding-top:6px; }
+    td.v { font-size:11px; color:#1a1208; line-height:1.5; }
+    tr.section-head td { background:${accentCol}10; color:${accentCol}; font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; padding:6px 8px 4px; border-bottom:1px solid ${accentCol}30; }
+    .horo-note { margin-top:14px; font-size:10px; color:#4a3c2c; padding:6px 10px; background:#fdf6e8; border:1px solid #c49a50; border-radius:4px; break-inside:avoid; }
+    .pdf-footer { margin-top:18px; padding-top:10px; border-top:1px solid #d6cfc4; font-size:9px; color:#a89080; display:flex; justify-content:space-between; }
   </style>
 </head>
 <body>
-
 <div class="pdf-header">
-  <div class="photos">${photoBlock || '<div style="width:110px;height:140px;border:1px solid #d6cfc4;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#c49a50;font-size:32px;background:#f5f0ea">${isBride ? '♀' : '♂'}</div>'}</div>
+  <div class="photos">
+    ${photoBlock || `<div class="no-photo">${isBride ? '♀' : '♂'}</div>`}
+  </div>
   <div class="header-text">
     <div class="org-name">Kathyayini Matrimony</div>
     <div class="profile-name">${p['Name'] || '—'}</div>
@@ -559,157 +502,78 @@ async function generateProfilePDF(uid) {
     <div class="uid-badge">${uid}</div>
   </div>
 </div>
-
 <table>${sectionsHtml}</table>
-
 ${horoNote}
-
 <div class="pdf-footer">
   <span>Kathyayini Matrimony — Confidential</span>
   <span>${uid}</span>
-  <span>${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+  <span>${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</span>
 </div>
-
 <script>
-  // Wait for images to load then print
   const imgs = document.querySelectorAll('img');
-  if (imgs.length === 0) {
-    window.print();
-  } else {
-    let loaded = 0;
+  if (!imgs.length) { window.print(); }
+  else {
+    let done = 0;
     imgs.forEach(img => {
-      if (img.complete) { loaded++; if (loaded === imgs.length) window.print(); }
-      else {
-        img.onload = img.onerror = () => { loaded++; if (loaded === imgs.length) window.print(); };
-      }
+      const check = () => { done++; if (done >= imgs.length) window.print(); };
+      if (img.complete) check(); else { img.onload = check; img.onerror = check; }
     });
   }
 <\/script>
-</body>
-</html>`);
+</body></html>`);
   win.document.close();
 }
 
-// ── Kept for Escape key handler ────────────────────────────────────────
+// ── Lightbox ───────────────────────────────────────────────────────────
+
+(function createLightboxDOM() {
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
+      <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+      <button class="lightbox-arrow prev" id="lb-prev" onclick="lbPrev()">‹</button>
+      <img class="lightbox-img" id="lightbox-img" alt="Full size photo">
+      <button class="lightbox-arrow next" id="lb-next" onclick="lbNext()">›</button>
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>`;
+  document.body.appendChild(el.firstElementChild);
+})();
+
+let _lbImages = [];
+let _lbIndex  = 0;
+
+function openLightbox(imgEl) {
+  const slider = imgEl.closest('.image-slider');
+  const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
+  _lbImages = slides.map(s => s.querySelector('img')).filter(Boolean).map(i => i.src).filter(Boolean);
+  const clickedSlide = imgEl.closest('.image-slide');
+  _lbIndex = slides.indexOf(clickedSlide);
+  if (_lbIndex < 0) _lbIndex = 0;
+  if (!_lbImages.length) { _lbImages = [imgEl.src]; _lbIndex = 0; }
+  _lbShow();
+  document.getElementById('lightbox-overlay').classList.add('open');
+  document.addEventListener('keydown', _lbKeyHandler);
+}
+
+function _lbShow() {
+  const img = document.getElementById('lightbox-img');
+  const cap = document.getElementById('lightbox-caption');
+  img.style.opacity = '0';
+  img.src = _lbImages[_lbIndex];
+  img.onload = () => { img.style.opacity = '1'; };
+  document.getElementById('lb-prev').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  document.getElementById('lb-next').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  cap.textContent = _lbImages.length > 1 ? `${_lbIndex + 1} / ${_lbImages.length}` : '';
+}
+function lbPrev() { _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length; _lbShow(); }
+function lbNext() { _lbIndex = (_lbIndex + 1) % _lbImages.length; _lbShow(); }
+function closeLightbox() { document.getElementById('lightbox-overlay').classList.remove('open'); document.removeEventListener('keydown', _lbKeyHandler); }
+function closeLightboxOnBg(e) { if (e.target === document.getElementById('lightbox-overlay')) closeLightbox(); }
+function _lbKeyHandler(e) { if (e.key==='Escape') closeLightbox(); if (e.key==='ArrowRight') lbNext(); if (e.key==='ArrowLeft') lbPrev(); }
+
+// ── closeDownloadManager stub (for Escape key handler) ────────────────
 function closeDownloadManager() {}
 
-// ── Search clear button ───────────────────────────────────────────────
-
-function clearSearch() {
-  const input = document.getElementById('search-input');
-  input.value = '';
-  document.getElementById('search-clear').classList.remove('visible');
-  applyFilters();
-  input.focus();
-}
-
-document.getElementById('search-input').addEventListener('input', function() {
-  const clearBtn = document.getElementById('search-clear');
-  clearBtn.classList.toggle('visible', this.value.length > 0);
-  applyFilters();
-});
-
-// ── Filters ───────────────────────────────────────────────────────────
-
-function applyFilters() {
-  const search   = document.getElementById('search-input').value.toLowerCase().trim();
-  const caste    = document.getElementById('caste-filter').value;
-  const location = document.getElementById('location-filter').value;
-  const sort     = document.getElementById('sort-select').value;
-
-  filtered = allProfiles.filter(p => {
-    if (activeFilter !== 'all' && p['Filling the Form Of'] !== activeFilter) return false;
-    if (caste && p['Sub Caste'] !== caste) return false;
-    if (location) {
-      const loc  = p['Staying In'] || '';
-      const city = p['If currently not staying in Bengaluru Please mention the city'] || '';
-      if (!loc.toLowerCase().includes(location.toLowerCase()) &&
-          !city.toLowerCase().includes(location.toLowerCase())) return false;
-    }
-    if (search) {
-      const s = [p['Name'], p['Gothra'], p['Nakshatra'], p['Sub Caste'],
-        p['Work Field'], p['Currently Working-In(Company Name) and As(Position)'],
-        p['Rashi'], p['Education '], p['ಮಠ - Mata'], p['Place of Birth']
-      ].join(' ').toLowerCase();
-      if (!s.includes(search)) return false;
-    }
-    return true;
-  });
-
-  if (sort === 'newest') filtered.sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
-  else if (sort === 'oldest') filtered.sort((a,b) => new Date(a['Timestamp']) - new Date(b['Timestamp']));
-  else if (sort === 'name') filtered.sort((a,b) => (a['Name']||'').localeCompare(b['Name']||''));
-
-  renderGrid();
-}
-
-function renderGrid() {
-  const grid = document.getElementById('grid');
-  document.getElementById('results-count').textContent = filtered.length;
-  if (filtered.length === 0) {
-    grid.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><div>No profiles match your filters</div></div>`;
-    return;
-  }
-  grid.innerHTML = filtered.map(createCard).join('');
-  injectHoroscopeButtons();
-}
-
-function populateFilters() {
-  const castes = [...new Set(allProfiles.map(p => p['Sub Caste']).filter(Boolean))].sort();
-  const casteEl = document.getElementById('caste-filter');
-  castes.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; casteEl.appendChild(o); });
-
-  const locations = [...new Set(allProfiles.map(p => p['Staying In']).filter(Boolean))].sort();
-  const locEl = document.getElementById('location-filter');
-  locations.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; locEl.appendChild(o); });
-}
-
-// ── Load data ─────────────────────────────────────────────────────────
-
-async function loadData() {
-  try {
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    allProfiles = parseCSV(text);
-
-    const brides = allProfiles.filter(p => p['Filling the Form Of'] === 'Bride').length;
-    const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
-    document.getElementById('bride-count').textContent = brides;
-    document.getElementById('groom-count').textContent = grooms;
-    document.getElementById('last-updated').textContent = 'Local Data';
-
-    populateFilters();
-    filtered = allProfiles.filter(p => p['Name'] && p['Name'].trim()).sort((a,b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
-    allProfiles = allProfiles.filter(p => p['Name'] && p['Name'].trim());
-    renderGrid();
-  } catch(e) {
-    document.getElementById('grid').innerHTML = `
-      <div class="loading-state" style="grid-column:1/-1">
-        <div style="font-size:36px;margin-bottom:12px">⚠</div>
-        <div style="color:var(--rose)">Could not load data/profiles.csv</div>
-        <div style="font-size:12px;margin-top:8px;color:var(--text-dim)">
-          Make sure <strong>data/profiles.csv</strong> is in the repo.<br>Error: ${e.message}
-        </div>
-      </div>`;
-  }
-}
-
-// ── Event listeners ───────────────────────────────────────────────────
-
-document.getElementById('caste-filter').addEventListener('change', applyFilters);
-document.getElementById('location-filter').addEventListener('change', applyFilters);
-document.getElementById('sort-select').addEventListener('change', applyFilters);
-
-document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeFilter = btn.dataset.filter;
-    applyFilters();
-  });
-});
-
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDownloadManager(); } });
+// ── Startup ───────────────────────────────────────────────────────────
 
 loadData();
