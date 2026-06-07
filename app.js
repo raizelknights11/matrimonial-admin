@@ -56,9 +56,7 @@ function photoCandidates(uid, slot) {
 }
 
 function horoscopeCandidates(uid) {
-  // Filename: <UID>-horoscope.pdf / .jpg / etc.
-  const u = uid.trim();
-  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/${u}-horoscope.${ext}`);
+  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/horoscope.${ext}`);
 }
 
 async function urlExists(url) {
@@ -68,20 +66,9 @@ async function urlExists(url) {
   } catch { return false; }
 }
 
-async function findHoroscope(uid, driveUrl) {
-  // 1. Try local files: profiles/<UID>/<UID>-horoscope.pdf etc.
+async function findHoroscope(uid) {
   for (const url of horoscopeCandidates(uid)) {
     if (await urlExists(url)) return url;
-  }
-  // 2. Fall back to Google Drive URL from CSV
-  if (driveUrl && driveUrl.trim()) {
-    // For PDFs use direct download; for images use thumbnail
-    const isPdf = driveUrl.toLowerCase().includes('pdf') || true; // assume PDF
-    const m = driveUrl.match(/\/d\/([^\/\?&]+)/);
-    if (m) return `https://drive.google.com/file/d/${m[1]}/view`;
-    const m2 = driveUrl.match(/id=([^&]+)/);
-    if (m2) return `https://drive.google.com/file/d/${m2[1]}/view`;
-    return driveUrl; // pass through as-is
   }
   return null;
 }
@@ -95,13 +82,15 @@ function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
   const driveFallback = driveViewUrl(driveUrl);
   if (driveFallback) all.push(driveFallback);
   const candidatesAttr = all.join('|');
+  // img-loading class on parent slide shows spinner; onload removes it
   return `<img
     src="${all[0]}"
     data-candidates="${candidatesAttr}"
     data-idx="0"
     onerror="tryNextImg(this,'${placeholderSymbol}')"
+    onload="this.closest('.image-slide').classList.remove('img-loading')"
     onclick="openLightbox(this)"
-    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;background:#1a100a08"
+    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;"
     alt="Profile photo"
   >`;
 }
@@ -110,8 +99,12 @@ function tryNextImg(img, symbol) {
   let idx = parseInt(img.dataset.idx) + 1;
   if (idx < candidates.length) {
     img.dataset.idx = idx;
+    img.closest('.image-slide')?.classList.add('img-loading');
     img.src = candidates[idx];
   } else {
+    // All candidates failed — show placeholder
+    const slide = img.closest('.image-slide');
+    if (slide) slide.classList.remove('img-loading');
     img.parentElement.innerHTML = `<div class="img-placeholder">${symbol}</div>`;
   }
 }
@@ -205,14 +198,27 @@ function createCard(p) {
   const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
   const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
 
+  // Contact section — completely hidden for guests
+  const _effRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  const _contactHtml = _effRole === 'admin'
+    ? `<div class="detail-section">
+              <div class="section-label">Contact</div>
+              <div class="detail-grid">
+                <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${p['Phone Number']||'—'}</div></div>
+                <div class="detail-item"><div class="detail-key">Email</div><div class="detail-val" style="word-break:break-all">${p['Email Address']||'—'}</div></div>
+                <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address']||'—'}</div></div>
+              </div>
+            </div>`
+    : `<div class="contact-hidden-notice">🔒 Contact details hidden</div>`;
+
   return `
     <div class="profile-card ${type}" id="${cardId}">
       <div class="card-images">
         <div class="image-slider" id="${cardId}-slider">
-          <div class="image-slide active" data-idx="0">
+          <div class="image-slide active img-loading" data-idx="0">
             ${buildImgWithFallback(photoCandidates(uid, 1), drivePhoto1, symbol)}
           </div>
-          <div class="image-slide" data-idx="1">
+          <div class="image-slide img-loading" data-idx="1">
             ${buildImgWithFallback(photoCandidates(uid, 2), drivePhoto2, symbol)}
           </div>
           <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
@@ -287,14 +293,7 @@ function createCard(p) {
             </div>
           </div>
           <div class="divider"></div>
-          <div class="detail-section">
-            <div class="section-label">Contact</div>
-            <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${p['Phone Number']||'—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Email</div><div class="detail-val" style="word-break:break-all">${p['Email Address']||'—'}</div></div>
-              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address']||'—'}</div></div>
-            </div>
-          </div>
+          ${_contactHtml}
         </div>
 
         <div class="card-footer">
@@ -314,7 +313,7 @@ async function injectHoroscopeButtons() {
     const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
     const slot   = document.getElementById(`${cardId}-horo`);
     if (!slot) continue;
-    const url = await findHoroscope(uid, p['Horoscope'] || '');
+    const url = await findHoroscope(uid);
     if (url) slot.innerHTML = `<a class="horoscope-btn" href="${url}" target="_blank">✦ View Horoscope</a>`;
   }
 }
@@ -362,11 +361,17 @@ async function openModal(uid) {
   ]);
 
   const rows = Object.entries(p)
-    .filter(([k,v]) => v && v.trim() && !skip.has(k))
+    .filter(([k,v]) => {
+      if (!v || !v.trim() || skip.has(k)) return false;
+      // Completely hide HIDDEN_FOR_GUEST fields from guest view
+      const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+      if (effectiveRole !== 'admin' && HIDDEN_FOR_GUEST.includes(k)) return false;
+      return true;
+    })
     .map(([k,v]) => `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g,' ').trim()}</div>
-        <div class="modal-val">${fieldValue(k, v)}</div>
+        <div class="modal-val">${v}</div>
       </div>`).join('');
 
   const horoUrl = await findHoroscope(uid, p['Horoscope'] || '');
@@ -388,8 +393,131 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
-// ── Download Manager removed ──────────────────────────────────────────
-function closeDownloadManager() {}  // stub for Escape key handler
+// ── Download Manager ──────────────────────────────────────────────────
+
+function openDownloadManager() {
+  renderDlList();
+  document.getElementById('dl-overlay').classList.add('open');
+}
+
+function closeDownloadManager() {
+  document.getElementById('dl-overlay').classList.remove('open');
+}
+
+document.getElementById('dl-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeDownloadManager();
+});
+
+function renderDlList() {
+  const query = (document.getElementById('dl-search')?.value || '').toLowerCase();
+  const profiles = allProfiles.filter(p =>
+    !query ||
+    (p['Name'] || '').toLowerCase().includes(query) ||
+    (p['Unique ID'] || '').toLowerCase().includes(query)
+  );
+
+  const list = document.getElementById('dl-list');
+  if (!profiles.length) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim)">No profiles found</div>`;
+    return;
+  }
+
+  list.innerHTML = profiles.map(p => {
+    const uid  = p['Unique ID'].trim();
+    const name = p['Name'] || '—';
+    const photo1 = p['Photo 1 - of Bride or Groom'];
+    const photo2 = p['Photo 2 - of Bride or Groom'];
+    const horo   = p['Horoscope'];
+
+    const tags = [
+      photo1 ? `<span class="dl-tag photo">photo1</span>` : '',
+      photo2 ? `<span class="dl-tag photo">photo2</span>` : '',
+      horo   ? `<span class="dl-tag horo">horoscope</span>` : '',
+    ].filter(Boolean).join('');
+
+    const hasAny = photo1 || photo2 || horo;
+
+    return `
+      <div class="dl-row">
+        <div class="dl-info">
+          <div class="dl-name">${name}</div>
+          <div class="dl-uid">${uid}</div>
+          <div class="dl-files">${tags || '<span style="font-size:11px;color:var(--text-dim)">No files in sheet</span>'}</div>
+        </div>
+        <button class="dl-btn" ${hasAny ? '' : 'disabled'}
+          onclick="downloadProfileZip('${uid}')">
+          ⬇ ZIP
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function downloadProfileZip(uid) {
+  const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
+  if (!p) return;
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Fetching…';
+
+  try {
+    const zip = new JSZip();
+    const folder = zip.folder(uid);
+
+    // Files named photo1/photo2/horoscope inside profiles/<UID>/ folder
+    // so the ZIP can be extracted directly into the GitHub repo
+    const files = [
+      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
+      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
+      { url: p['Horoscope'],                   name: 'horoscope' },
+    ].filter(f => f.url && f.url.trim());
+
+    let added = 0;
+    for (const f of files) {
+      try {
+        const directUrl = driveDirectUrl(f.url);
+        const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
+        btn.textContent = `Fetching ${f.name}…`;
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) continue;
+        const blob = await resp.blob();
+        // Determine extension from MIME type or URL
+        let ext = 'jpg';
+        const mime = blob.type || '';
+        if (mime.includes('pdf'))       ext = 'pdf';
+        else if (mime.includes('png'))  ext = 'png';
+        else if (mime.includes('webp')) ext = 'webp';
+        else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+        else ext = extFromUrl(f.url);
+
+        // file goes into profiles/UID/photo1.jpg — drop the whole zip into repo root
+        folder.file(`${f.name}.${ext}`, blob);
+        added++;
+      } catch (e) { /* skip failed file */ }
+    }
+
+    if (added === 0) {
+      alert('Could not fetch any files. Make sure Google Drive links are set to "Anyone with the link can view".');
+      btn.disabled = false;
+      btn.textContent = '⬇ ZIP';
+      return;
+    }
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = `profiles_${uid}.zip`;  // Extract into repo root — creates profiles/UID/photo1.jpg
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+  } catch (e) {
+    alert('Download failed: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '⬇ ZIP';
+}
 
 // ── Search clear button ───────────────────────────────────────────────
 
@@ -476,7 +604,10 @@ function initApp() {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
     logoutBtn.style.display = '';
-    logoutBtn.textContent = `↩ ${currentRole === 'admin' ? 'Admin' : 'Guest'}`;
+    logoutBtn.innerHTML = `
+      <span class="logout-role">${currentRole === 'admin' ? '🔑 Admin' : '👤 Guest'}</span>
+      <span class="logout-sep">·</span>
+      <span class="logout-action">Sign Out</span>`;
   }
   loadData();
 }
@@ -546,8 +677,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal
 // Returns display value for a field — masked if guest + field is in HIDDEN_FOR_GUEST
 function fieldValue(key, val) {
   if (!val) return '—';
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-  if (effectiveRole === 'admin') return val;
+  if (currentRole === 'admin') return val;
   if (HIDDEN_FOR_GUEST.includes(key)) {
     const fn = MASK_FN[key];
     return fn ? fn(val) : '••••••';
@@ -634,13 +764,23 @@ function togglePrivacy() {
   renderGrid();
 }
 
-// fieldValue respects admin preview-guest mode
+// Override fieldValue to respect preview mode
+const _origFieldValue = fieldValue;
+function fieldValue(key, val) {
+  if (!val) return '—';
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  if (effectiveRole === 'admin') return val;
+  if (HIDDEN_FOR_GUEST.includes(key)) {
+    const fn = MASK_FN[key];
+    return fn ? fn(val) : '••••••';
+  }
+  return val;
+}
 
 // ── Lightbox ──────────────────────────────────────────────────────────
 
-// Injected lazily on first use — avoids being wiped by showLoginScreen()
-function ensureLightboxDOM() {
-  if (document.getElementById('lightbox-overlay')) return;
+// Inject the lightbox DOM once on page load
+(function createLightboxDOM() {
   const el = document.createElement('div');
   el.innerHTML = `
     <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
@@ -651,15 +791,14 @@ function ensureLightboxDOM() {
       <div class="lightbox-caption" id="lightbox-caption"></div>
     </div>`;
   document.body.appendChild(el.firstElementChild);
-}
+})();
 
 // All images in the current card's slider — for prev/next navigation
 let _lbImages = [];
 let _lbIndex  = 0;
 
 function openLightbox(imgEl) {
-  ensureLightboxDOM(); // inject lightbox if not yet in DOM
-  // Collect images from all slides in order
+  ensureLightboxDOM();
   const slider = imgEl.closest('.image-slider');
   const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
 
@@ -669,16 +808,14 @@ function openLightbox(imgEl) {
     .map(i => i.src)
     .filter(Boolean);
 
-  // Index = which slide contains the clicked image
-  const clickedSlide = imgEl.closest('.image-slide');
-  _lbIndex = slides.indexOf(clickedSlide);
+  // Use ACTIVE slide index — all slides exist in DOM simultaneously,
+  // so indexOf(clickedSlide) can return wrong value when slide 1 is active
+  // but slide 2's img was the event target due to stacking.
+  const activeSlide = slider ? slider.querySelector('.image-slide.active') : null;
+  _lbIndex = activeSlide ? slides.indexOf(activeSlide) : 0;
   if (_lbIndex < 0) _lbIndex = 0;
 
-  // Fallback: single image
-  if (!_lbImages.length) {
-    _lbImages = [imgEl.src];
-    _lbIndex  = 0;
-  }
+  if (!_lbImages.length) { _lbImages = [imgEl.src]; _lbIndex = 0; }
 
   _lbShow();
   document.getElementById('lightbox-overlay').classList.add('open');
