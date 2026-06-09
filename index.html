@@ -53,11 +53,11 @@
       <option value="newest">Newest First</option>
       <option value="oldest">Oldest First</option>
       <option value="name">Name A–Z</option>
+      <option value="dob_asc">Birth Year: Oldest</option>
+      <option value="dob_desc">Birth Year: Youngest</option>
     </select>
 
-    <!-- Right-side actions -->
-    <div class="controls-actions">
-    </div>
+    <div class="controls-actions"></div>
   </div>
 </div>
 
@@ -83,26 +83,6 @@
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
-  </div>
-</div>
-
-        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Files auto-renamed with Unique ID — ready to drop into the profiles folder</div>
-      </div>
-      <button class="modal-close" onclick="closeDownloadManager()">✕</button>
-    </div>
-    <div class="modal-body" id="dl-body">
-      <div class="dl-intro">
-        <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">
-          Click <strong>Download ZIP</strong> on any profile to get its photos and horoscope already renamed:<br>
-          <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:12px">UID-Photo-1.jpg &nbsp; UID-Photo-2.jpg &nbsp; UID-horoscope.pdf</code>
-        </p>
-        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">Just unzip into <code style="background:var(--surface);padding:2px 6px;border-radius:4px">profiles/UID/</code> — done.</p>
-      </div>
-      <div class="dl-search-wrap">
-        <input type="text" id="dl-search" placeholder="Search by name or ID…" oninput="renderDlList()">
-      </div>
-      <div id="dl-list"></div>
-    </div>
   </div>
 </div>
 
