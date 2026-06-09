@@ -4,17 +4,23 @@
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
 
+// ── Access levels ─────────────────────────────────────────────────────
 // 'admin' → sees everything including phone, address, email
 // 'guest' → HIDDEN_FOR_GUEST fields are masked
 const PASSWORDS = {
-  'Kamala1970': 'admin',
+  'Kamala1970': 'admin',   // ← change these passwords freely
   'Guest1970':  'guest',
 };
 
-// CSV column names to hide / mask for guest access
-const HIDDEN_FOR_GUEST = ['Phone Number', 'Address', 'Email Address'];
+// ── Fields to hide from guest access ─────────────────────────────────
+// Add or remove CSV column names — must match the header exactly
+const HIDDEN_FOR_GUEST = [
+  'Phone Number',
+  'Address',
+  'Email Address',
+];
 
-// How masked values appear to guests
+// ── How masked values appear to guests ───────────────────────────────
 const MASK_FN = {
   'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),
   'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',
@@ -26,12 +32,13 @@ const MASK_FN = {
 const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
 const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
 
-// ── State ─────────────────────────────────────────────────────────────
 let allProfiles  = [];
 let filtered     = [];
 let activeFilter = 'all';
-let currentRole  = null;   // null | 'admin' | 'guest'
-let _previewGuest = false; // admin toggling guest-view preview
+let currentRole  = null;  // null = not logged in | 'admin' | 'guest'
+
+// ── Privacy toggle (admin can preview guest view) ─────────────────────
+let _previewGuest = false;
 
 // =====================================================================
 // FILE PATH HELPERS
@@ -46,7 +53,9 @@ function photoCandidates(uid, slot) {
   const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
   const paths = [];
   for (const name of names) {
-    for (const ext of IMG_EXTENSIONS) paths.push(`${base}/${name}.${ext}`);
+    for (const ext of IMG_EXTENSIONS) {
+      paths.push(`${base}/${name}.${ext}`);
+    }
   }
   return paths;
 }
@@ -70,117 +79,11 @@ async function findHoroscope(uid) {
 }
 
 // =====================================================================
-// GOOGLE DRIVE HELPERS
+// IMAGE WITH FALLBACK
 // =====================================================================
 
-function driveDirectUrl(url) {
-  if (!url) return null;
-  const m = url.match(/\/d\/([^/?&]+)/);
-  if (m)  return `https://drive.google.com/uc?export=download&id=${m[1]}`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/uc?export=download&id=${m2[1]}`;
-  return url;
-}
-
-function driveViewUrl(url) {
-  if (!url) return null;
-  const m = url.match(/\/d\/([^/?&]+)/);
-  if (m)  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w600`;
-  return url;
-}
-
-function extFromUrl(url) {
-  const lower = (url || '').toLowerCase();
-  if (lower.includes('.pdf'))  return 'pdf';
-  if (lower.includes('.png'))  return 'png';
-  if (lower.includes('.webp')) return 'webp';
-  return 'jpg';
-}
-
-// =====================================================================
-// CSV PARSER
-// =====================================================================
-
-function parseCSV(text) {
-  const lines   = text.split('\n');
-  const headers = parseCSVLine(lines[0]);
-  const rows    = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const vals = parseCSVLine(line);
-    const obj  = {};
-    headers.forEach((h, idx) => { obj[h.trim()] = (vals[idx] || '').trim(); });
-    if (obj['Unique ID']) rows.push(obj);
-  }
-  return rows;
-}
-
-function parseCSVLine(line) {
-  const result = [];
-  let cur = '', inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes) {
-      result.push(cur); cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  result.push(cur);
-  return result;
-}
-
-// =====================================================================
-// UTILITIES
-// =====================================================================
-
-function getAge(dob) {
-  if (!dob) return '—';
-  const parts = dob.split(/[/\-\s]/);
-  let d;
-  if (parts.length === 3) {
-    const n = parts.map(Number);
-    if      (n[2] > 1900) d = new Date(n[2], n[0] - 1, n[1]);
-    else if (n[0] > 1900) d = new Date(n[0], n[1] - 1, n[2]);
-    else                  d = new Date(n[2], n[1] - 1, n[0]);
-  } else {
-    d = new Date(dob);
-  }
-  if (isNaN(d)) return '—';
-  const age = Math.floor((Date.now() - d) / (365.25 * 24 * 60 * 60 * 1000));
-  return age > 0 && age < 120 ? age + ' yrs' : '—';
-}
-
-// Returns display value — masked when guest + field is sensitive
-function fieldValue(key, val) {
-  if (!val) return '—';
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-  if (effectiveRole === 'admin') return val;
-  if (HIDDEN_FOR_GUEST.includes(key)) {
-    const fn = MASK_FN[key];
-    return fn ? fn(val) : '••••••';
-  }
-  return val;
-}
-
-// =====================================================================
-// ACCESS CONTROL
-// =====================================================================
-
-function effectiveRole() {
-  return (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-}
-
-// =====================================================================
-// IMAGE HELPERS
-// =====================================================================
-
+// localCandidates: UID-prefixed local paths tried first
+// driveUrl: raw Google Drive URL from CSV — used only if all local paths fail
 function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
   const all          = [...localCandidates];
   const driveFallback = driveViewUrl(driveUrl);
@@ -213,38 +116,140 @@ function tryNextImg(img, symbol) {
 }
 
 // =====================================================================
+// CSV PARSER
+// =====================================================================
+
+function parseCSV(text) {
+  const lines   = text.split('\n');
+  const headers = parseCSVLine(lines[0]);
+  const rows    = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = parseCSVLine(line);
+    const obj  = {};
+    headers.forEach((h, idx) => { obj[h.trim()] = (vals[idx] || '').trim(); });
+    if (obj['Unique ID']) rows.push(obj);
+  }
+  return rows;
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(cur); cur = '';
+    } else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// =====================================================================
+// UTILITIES
+// =====================================================================
+
+// Returns a Date object from a DOB string, or null if unparseable.
+// Handles: plain year "1998", DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, etc.
+function parseDOB(dob) {
+  if (!dob) return null;
+  const trimmed = dob.trim();
+
+  // Plain 4-digit year e.g. "1998"
+  if (/^\d{4}$/.test(trimmed)) return new Date(parseInt(trimmed), 0, 1);
+
+  const parts = trimmed.split(/[\/\-\s]/);
+  let d;
+  if (parts.length === 3) {
+    const n = parts.map(Number);
+    if      (n[2] > 1900) d = new Date(n[2], n[0] - 1, n[1]);
+    else if (n[0] > 1900) d = new Date(n[0], n[1] - 1, n[2]);
+    else                  d = new Date(n[2], n[1] - 1, n[0]);
+  } else { d = new Date(trimmed); }
+  return isNaN(d) ? null : d;
+}
+
+function getAge(dob) {
+  const d = parseDOB(dob);
+  if (!d) return '—';
+  const age = Math.floor((Date.now() - d) / (365.25 * 24 * 60 * 60 * 1000));
+  return age > 0 && age < 120 ? age + ' yrs' : '—';
+}
+
+function driveDirectUrl(url) {
+  if (!url) return null;
+  const m = url.match(/\/d\/([^\/\?&]+)/);
+  if (m)  return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+  const m2 = url.match(/id=([^&]+)/);
+  if (m2) return `https://drive.google.com/uc?export=download&id=${m2[1]}`;
+  return url;
+}
+
+function driveViewUrl(url) {
+  if (!url) return null;
+  const m = url.match(/\/d\/([^\/\?&]+)/);
+  if (m)  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
+  const m2 = url.match(/id=([^&]+)/);
+  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w600`;
+  return url;
+}
+
+function extFromUrl(url) {
+  const lower = (url || '').toLowerCase();
+  if (lower.includes('.pdf'))  return 'pdf';
+  if (lower.includes('.png'))  return 'png';
+  if (lower.includes('.webp')) return 'webp';
+  return 'jpg';
+}
+
+// =====================================================================
+// ACCESS CONTROL
+// =====================================================================
+
+// Returns display value for a field — masked if guest + field is in HIDDEN_FOR_GUEST
+function fieldValue(key, val) {
+  if (!val) return '—';
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  if (effectiveRole === 'admin') return val;
+  if (HIDDEN_FOR_GUEST.includes(key)) {
+    const fn = MASK_FN[key];
+    return fn ? fn(val) : '••••••';
+  }
+  return val;
+}
+
+function maskPhone(val)   { return fieldValue('Phone Number', val); }
+function maskAddress(val) { return fieldValue('Address', val); }
+
+// =====================================================================
 // CARD RENDERER
 // =====================================================================
 
 function createCard(p) {
-  const uid       = p['Unique ID'].trim();
-  const isBride   = p['Filling the Form Of'] === 'Bride';
-  const type      = isBride ? 'bride' : 'groom';
-  const cardId    = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
-  const age       = getAge(p['Date Of Birth']);
-  const symbol    = isBride ? '♀' : '♂';
+  const uid    = p['Unique ID'].trim();
+  const isBride = p['Filling the Form Of'] === 'Bride';
+  const type   = isBride ? 'bride' : 'groom';
+  const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
+  const age    = getAge(p['Date Of Birth']);
+  const symbol = isBride ? '♀' : '♂';
   const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
   const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
 
-  const role = effectiveRole();
-  const contactHtml = role === 'admin'
+  const effRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  const contactHtml = effRole === 'admin'
     ? `<div class="detail-section">
-         <div class="section-label">Contact</div>
-         <div class="detail-grid">
-           <div class="detail-item">
-             <div class="detail-key">Phone</div>
-             <div class="detail-val">${p['Phone Number'] || '—'}</div>
-           </div>
-           <div class="detail-item">
-             <div class="detail-key">Email</div>
-             <div class="detail-val" style="word-break:break-all">${p['Email Address'] || '—'}</div>
-           </div>
-           <div class="detail-item" style="grid-column:1/-1">
-             <div class="detail-key">Address</div>
-             <div class="detail-val">${p['Address'] || '—'}</div>
-           </div>
-         </div>
-       </div>`
+        <div class="section-label">Contact</div>
+        <div class="detail-grid">
+          <div class="detail-item"><div class="detail-key">Phone</div><div class="detail-val">${p['Phone Number'] || '—'}</div></div>
+          <div class="detail-item"><div class="detail-key">Email</div><div class="detail-val" style="word-break:break-all">${p['Email Address'] || '—'}</div></div>
+          <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address'] || '—'}</div></div>
+        </div>
+      </div>`
     : `<div class="contact-hidden-notice">🔒 Contact details hidden</div>`;
 
   return `
@@ -277,8 +282,8 @@ function createCard(p) {
             <span class="tag ${type}">${p['Filling the Form Of']}</span>
             ${age !== '—' ? `<span class="tag neutral">${age}</span>` : ''}
             ${p['Height (in feet) - example 5 / 5`2 / 5`11'] ? `<span class="tag neutral">${p['Height (in feet) - example 5 / 5`2 / 5`11']}</span>` : ''}
-            ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`     : ''}
-            ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>`   : ''}
+            ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`    : ''}
+            ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>`  : ''}
           </div>
         </div>
 
@@ -295,7 +300,6 @@ function createCard(p) {
             </div>
           </div>
           <div class="divider"></div>
-
           <div class="detail-section">
             <div class="section-label">Professional</div>
             <div class="detail-grid">
@@ -307,7 +311,6 @@ function createCard(p) {
             </div>
           </div>
           <div class="divider"></div>
-
           <div class="detail-section">
             <div class="section-label">Family</div>
             <div class="detail-grid">
@@ -319,7 +322,6 @@ function createCard(p) {
             </div>
           </div>
           <div class="divider"></div>
-
           <div class="detail-section">
             <div class="section-label">Preferences</div>
             <div class="detail-grid">
@@ -332,7 +334,6 @@ function createCard(p) {
             </div>
           </div>
           <div class="divider"></div>
-
           ${contactHtml}
         </div>
 
@@ -359,7 +360,7 @@ async function injectHoroscopeButtons() {
 }
 
 // =====================================================================
-// IMAGE SLIDER
+// SLIDE LOGIC
 // =====================================================================
 
 function goSlide(id, idx) {
@@ -391,44 +392,40 @@ function prevSlide(id) {
 // PROFILE DETAIL MODAL
 // =====================================================================
 
-// Fields omitted from the "Full Details" modal
-const MODAL_SKIP = new Set([
-  'Photo 1 - of Bride or Groom',
-  'Photo 2 - of Bride or Groom',
-  'Horoscope',
-  '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services',
-]);
-
 async function openModal(uid) {
   const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
   if (!p) return;
 
   document.getElementById('modal-name').textContent = p['Name'] || '—';
   document.getElementById('modal-id').textContent =
-    `${uid} · ${p['Filling the Form Of']} · Registered ${(p['Timestamp'] || '').split(' ')[0]}`;
+    uid + ' · ' + p['Filling the Form Of'] + ' · Registered ' + (p['Timestamp'] || '').split(' ')[0];
 
-  const role = effectiveRole();
+  const skip = new Set([
+    'Photo 1 - of Bride or Groom',
+    'Photo 2 - of Bride or Groom',
+    'Horoscope',
+    '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services',
+  ]);
+
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
 
   const rows = Object.entries(p)
     .filter(([k, v]) => {
-      if (!v || !v.trim() || MODAL_SKIP.has(k)) return false;
-      if (role !== 'admin' && HIDDEN_FOR_GUEST.includes(k)) return false;
+      if (!v || !v.trim() || skip.has(k)) return false;
+      if (effectiveRole !== 'admin' && HIDDEN_FOR_GUEST.includes(k)) return false;
       return true;
     })
     .map(([k, v]) => `
       <div class="modal-detail-row">
         <div class="modal-key">${k.replace(/\s+/g, ' ').trim()}</div>
         <div class="modal-val">${v}</div>
-      </div>`)
-    .join('');
+      </div>`).join('');
 
   const horoUrl = await findHoroscope(uid);
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
-      <div class="modal-val">
-        <a href="${horoUrl}" target="_blank" style="color:var(--gold)">Open Horoscope ↗</a>
-      </div>
+      <div class="modal-val"><a href="${horoUrl}" target="_blank" style="color:var(--gold)">Open Horoscope ↗</a></div>
     </div>` : '';
 
   document.getElementById('modal-body').innerHTML = rows + horoRow;
@@ -439,134 +436,12 @@ function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
 }
 
-document.getElementById('modal-overlay').addEventListener('click', function (e) {
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
 // =====================================================================
-// DOWNLOAD MANAGER (admin only)
-// =====================================================================
-
-function openDownloadManager() {
-  renderDlList();
-  document.getElementById('dl-overlay').classList.add('open');
-}
-
-function closeDownloadManager() {
-  document.getElementById('dl-overlay').classList.remove('open');
-}
-
-document.getElementById('dl-overlay').addEventListener('click', function (e) {
-  if (e.target === this) closeDownloadManager();
-});
-
-function renderDlList() {
-  const query    = (document.getElementById('dl-search')?.value || '').toLowerCase();
-  const profiles = allProfiles.filter(p =>
-    !query ||
-    (p['Name']      || '').toLowerCase().includes(query) ||
-    (p['Unique ID'] || '').toLowerCase().includes(query)
-  );
-
-  const list = document.getElementById('dl-list');
-  if (!profiles.length) {
-    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim)">No profiles found</div>`;
-    return;
-  }
-
-  list.innerHTML = profiles.map(p => {
-    const uid    = p['Unique ID'].trim();
-    const name   = p['Name'] || '—';
-    const photo1 = p['Photo 1 - of Bride or Groom'];
-    const photo2 = p['Photo 2 - of Bride or Groom'];
-    const horo   = p['Horoscope'];
-    const hasAny = photo1 || photo2 || horo;
-
-    const tags = [
-      photo1 ? `<span class="dl-tag photo">photo1</span>`    : '',
-      photo2 ? `<span class="dl-tag photo">photo2</span>`    : '',
-      horo   ? `<span class="dl-tag horo">horoscope</span>`  : '',
-    ].filter(Boolean).join('');
-
-    return `
-      <div class="dl-row">
-        <div class="dl-info">
-          <div class="dl-name">${name}</div>
-          <div class="dl-uid">${uid}</div>
-          <div class="dl-files">${tags || '<span style="font-size:11px;color:var(--text-dim)">No files in sheet</span>'}</div>
-        </div>
-        <button class="dl-btn" ${hasAny ? '' : 'disabled'} onclick="downloadProfileZip('${uid}')">
-          ⬇ ZIP
-        </button>
-      </div>`;
-  }).join('');
-}
-
-async function downloadProfileZip(uid) {
-  const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
-  if (!p) return;
-
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Fetching…';
-
-  try {
-    const zip    = new JSZip();
-    const folder = zip.folder(uid);
-
-    const files = [
-      { url: p['Photo 1 - of Bride or Groom'], name: 'photo1' },
-      { url: p['Photo 2 - of Bride or Groom'], name: 'photo2' },
-      { url: p['Horoscope'],                   name: 'horoscope' },
-    ].filter(f => f.url && f.url.trim());
-
-    let added = 0;
-    for (const f of files) {
-      try {
-        const directUrl = driveDirectUrl(f.url);
-        const proxyUrl  = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl);
-        btn.textContent = `Fetching ${f.name}…`;
-        const resp = await fetch(proxyUrl);
-        if (!resp.ok) continue;
-        const blob = await resp.blob();
-
-        let ext = 'jpg';
-        const mime = blob.type || '';
-        if      (mime.includes('pdf'))                        ext = 'pdf';
-        else if (mime.includes('png'))                        ext = 'png';
-        else if (mime.includes('webp'))                       ext = 'webp';
-        else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
-        else ext = extFromUrl(f.url);
-
-        folder.file(`${f.name}.${ext}`, blob);
-        added++;
-      } catch { /* skip failed file */ }
-    }
-
-    if (added === 0) {
-      alert('Could not fetch any files. Make sure Google Drive links are set to "Anyone with the link can view".');
-      btn.disabled = false;
-      btn.textContent = '⬇ ZIP';
-      return;
-    }
-
-    const content = await zip.generateAsync({ type: 'blob' });
-    const a = document.createElement('a');
-    a.href     = URL.createObjectURL(content);
-    a.download = `profiles_${uid}.zip`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-
-  } catch (e) {
-    alert('Download failed: ' + e.message);
-  }
-
-  btn.disabled = false;
-  btn.textContent = '⬇ ZIP';
-}
-
-// =====================================================================
-// SEARCH + FILTERS
+// SEARCH & FILTERS
 // =====================================================================
 
 function clearSearch() {
@@ -577,7 +452,7 @@ function clearSearch() {
   input.focus();
 }
 
-document.getElementById('search-input').addEventListener('input', function () {
+document.getElementById('search-input').addEventListener('input', function() {
   document.getElementById('search-clear').classList.toggle('visible', this.value.length > 0);
   applyFilters();
 });
@@ -593,6 +468,10 @@ document.querySelectorAll('.count-pill[data-filter]').forEach(btn => {
     activeFilter = btn.dataset.filter;
     applyFilters();
   });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeLightbox(); }
 });
 
 function applyFilters() {
@@ -621,15 +500,17 @@ function applyFilters() {
     return true;
   });
 
-  if      (sort === 'newest') filtered.sort((a, b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
-  else if (sort === 'oldest') filtered.sort((a, b) => new Date(a['Timestamp']) - new Date(b['Timestamp']));
-  else if (sort === 'name')   filtered.sort((a, b) => (a['Name'] || '').localeCompare(b['Name'] || ''));
+  if      (sort === 'newest')   filtered.sort((a, b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
+  else if (sort === 'oldest')   filtered.sort((a, b) => new Date(a['Timestamp']) - new Date(b['Timestamp']));
+  else if (sort === 'name')     filtered.sort((a, b) => (a['Name'] || '').localeCompare(b['Name'] || ''));
+  else if (sort === 'dob_asc')  filtered.sort((a, b) => (parseDOB(a['Date Of Birth']) || 0) - (parseDOB(b['Date Of Birth']) || 0));
+  else if (sort === 'dob_desc') filtered.sort((a, b) => (parseDOB(b['Date Of Birth']) || 0) - (parseDOB(a['Date Of Birth']) || 0));
 
   renderGrid();
 }
 
 // =====================================================================
-// GRID RENDERER
+// GRID RENDER
 // =====================================================================
 
 function renderGrid() {
@@ -662,94 +543,55 @@ function populateFilters() {
 }
 
 // =====================================================================
-// PRIVACY TOGGLE (admin previews guest view)
+// DATA LOADING
 // =====================================================================
 
-function togglePrivacy() {
-  if (currentRole !== 'admin') return;
-  _previewGuest = !_previewGuest;
-  const btn = document.getElementById('privacy-btn');
-  if (btn) {
-    btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
-    btn.classList.toggle('privacy-active', _previewGuest);
+async function loadData() {
+  try {
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    allProfiles = parseCSV(text).filter(p => p['Name'] && p['Name'].trim());
+
+    const brides = allProfiles.filter(p => p['Filling the Form Of'] === 'Bride').length;
+    const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
+    document.getElementById('bride-count').textContent = brides;
+    document.getElementById('groom-count').textContent = grooms;
+    const allCountEl = document.getElementById('all-count');
+    if (allCountEl) allCountEl.textContent = allProfiles.length;
+
+    populateFilters();
+    filtered = [...allProfiles].sort((a, b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
+    renderGrid();
+  } catch (e) {
+    document.getElementById('grid').innerHTML = `
+      <div class="loading-state" style="grid-column:1/-1">
+        <div style="font-size:36px;margin-bottom:12px">⚠</div>
+        <div style="color:var(--rose)">Could not load profiles</div>
+        <div style="font-size:12px;margin-top:8px;color:var(--text-dim)">Error: ${e.message}</div>
+      </div>`;
   }
-  renderGrid();
 }
 
 // =====================================================================
-// LIGHTBOX
+// APP INIT & LOGIN
 // =====================================================================
 
-// Inject lightbox DOM once on page load
-(function createLightboxDOM() {
-  const el = document.createElement('div');
-  el.innerHTML = `
-    <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
-      <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-      <button class="lightbox-arrow prev" id="lb-prev" onclick="lbPrev()">‹</button>
-      <img class="lightbox-img" id="lightbox-img" alt="Full size photo">
-      <button class="lightbox-arrow next" id="lb-next" onclick="lbNext()">›</button>
-      <div class="lightbox-caption" id="lightbox-caption"></div>
-    </div>`;
-  document.body.appendChild(el.firstElementChild);
-})();
-
-let _lbImages = [];
-let _lbIndex  = 0;
-
-function openLightbox(imgEl) {
-  const slider     = imgEl.closest('.image-slider');
-  const slides     = slider ? [...slider.querySelectorAll('.image-slide')] : [];
-  const activeSlide = slider ? slider.querySelector('.image-slide.active') : null;
-
-  _lbImages = slides
-    .map(s => s.querySelector('img'))
-    .filter(Boolean)
-    .map(i => i.src)
-    .filter(Boolean);
-
-  _lbIndex = activeSlide ? Math.max(slides.indexOf(activeSlide), 0) : 0;
-  if (!_lbImages.length) { _lbImages = [imgEl.src]; _lbIndex = 0; }
-
-  _lbShow();
-  document.getElementById('lightbox-overlay').classList.add('open');
-  document.addEventListener('keydown', _lbKeyHandler);
+function initApp() {
+  if (document.getElementById('login-screen')) {
+    location.reload();
+    return;
+  }
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.style.display = '';
+    logoutBtn.innerHTML = `
+      <span class="logout-role">${currentRole === 'admin' ? '🔑 Admin' : '👤 Guest'}</span>
+      <span class="logout-sep">·</span>
+      <span class="logout-action">Sign Out</span>`;
+  }
+  loadData();
 }
-
-function _lbShow() {
-  const img = document.getElementById('lightbox-img');
-  const cap = document.getElementById('lightbox-caption');
-  img.style.opacity = '0';
-  img.src = _lbImages[_lbIndex];
-  img.onload = () => { img.style.opacity = '1'; };
-
-  const multi = _lbImages.length > 1;
-  document.getElementById('lb-prev').style.display = multi ? 'flex' : 'none';
-  document.getElementById('lb-next').style.display = multi ? 'flex' : 'none';
-  cap.textContent = multi ? `${_lbIndex + 1} / ${_lbImages.length}` : '';
-}
-
-function lbPrev() { _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length; _lbShow(); }
-function lbNext() { _lbIndex = (_lbIndex + 1) % _lbImages.length; _lbShow(); }
-
-function closeLightbox() {
-  document.getElementById('lightbox-overlay').classList.remove('open');
-  document.removeEventListener('keydown', _lbKeyHandler);
-}
-
-function closeLightboxOnBg(e) {
-  if (e.target === document.getElementById('lightbox-overlay')) closeLightbox();
-}
-
-function _lbKeyHandler(e) {
-  if (e.key === 'Escape')     closeLightbox();
-  if (e.key === 'ArrowRight') lbNext();
-  if (e.key === 'ArrowLeft')  lbPrev();
-}
-
-// =====================================================================
-// AUTH — LOGIN / LOGOUT
-// =====================================================================
 
 function showLoginScreen() {
   document.body.innerHTML = `
@@ -810,80 +652,87 @@ function logout() {
   location.reload();
 }
 
-// =====================================================================
-// APP INIT + DATA LOAD
-// =====================================================================
-
-function initApp() {
-  // If login screen replaced the DOM, reload (session is now set)
-  if (document.getElementById('login-screen')) {
-    location.reload();
-    return;
+function togglePrivacy() {
+  if (currentRole !== 'admin') return;
+  _previewGuest = !_previewGuest;
+  const btn = document.getElementById('privacy-btn');
+  if (btn) {
+    btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
+    btn.classList.toggle('privacy-active', _previewGuest);
   }
-
-  // Show logout button
-  const logoutBtn = document.getElementById('logout-btn');
-  if (logoutBtn) {
-    logoutBtn.style.display = '';
-    logoutBtn.innerHTML = `
-      <span class="logout-role">${currentRole === 'admin' ? '🔑 Admin' : '👤 Guest'}</span>
-      <span class="logout-sep">·</span>
-      <span class="logout-action">Sign Out</span>`;
-  }
-
-  // Admin-only controls
-  if (currentRole === 'admin') {
-    const actions = document.querySelector('.controls-actions');
-    if (actions) {
-      actions.innerHTML = `
-        <button id="privacy-btn" class="download-manager-btn" onclick="togglePrivacy()" style="background:var(--surface);color:var(--text-muted);border:1px solid var(--border);">
-          👁 Hide Details
-        </button>
-        <button class="download-manager-btn" onclick="openDownloadManager()">⬇ Downloads</button>`;
-    }
-  }
-
-  loadData();
-}
-
-async function loadData() {
-  try {
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-
-    allProfiles = parseCSV(text).filter(p => p['Name'] && p['Name'].trim());
-
-    const brides = allProfiles.filter(p => p['Filling the Form Of'] === 'Bride').length;
-    const grooms = allProfiles.filter(p => p['Filling the Form Of'] === 'Groom').length;
-    document.getElementById('bride-count').textContent = brides;
-    document.getElementById('groom-count').textContent = grooms;
-
-    const allCountEl = document.getElementById('all-count');
-    if (allCountEl) allCountEl.textContent = allProfiles.length;
-
-    populateFilters();
-
-    filtered = [...allProfiles].sort((a, b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
-    renderGrid();
-
-  } catch (e) {
-    document.getElementById('grid').innerHTML = `
-      <div class="loading-state" style="grid-column:1/-1">
-        <div style="font-size:36px;margin-bottom:12px">⚠</div>
-        <div style="color:var(--rose)">Could not load profiles</div>
-        <div style="font-size:12px;margin-top:8px;color:var(--text-dim)">Error: ${e.message}</div>
-      </div>`;
-  }
+  renderGrid();
 }
 
 // =====================================================================
-// GLOBAL KEYBOARD SHORTCUTS
+// LIGHTBOX
 // =====================================================================
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeDownloadManager(); }
-});
+// Inject lightbox DOM once on page load
+(function createLightboxDOM() {
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <div class="lightbox-overlay" id="lightbox-overlay" onclick="closeLightboxOnBg(event)">
+      <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+      <button class="lightbox-arrow prev" id="lb-prev" onclick="lbPrev()">‹</button>
+      <img class="lightbox-img" id="lightbox-img" alt="Full size photo">
+      <button class="lightbox-arrow next" id="lb-next" onclick="lbNext()">›</button>
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>`;
+  document.body.appendChild(el.firstElementChild);
+})();
+
+let _lbImages = [];
+let _lbIndex  = 0;
+
+function openLightbox(imgEl) {
+  const slider = imgEl.closest('.image-slider');
+  const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
+
+  _lbImages = slides
+    .map(s => s.querySelector('img'))
+    .filter(Boolean)
+    .map(i => i.src)
+    .filter(Boolean);
+
+  const activeSlide = slider ? slider.querySelector('.image-slide.active') : null;
+  _lbIndex = activeSlide ? slides.indexOf(activeSlide) : 0;
+  if (_lbIndex < 0) _lbIndex = 0;
+  if (!_lbImages.length) { _lbImages = [imgEl.src]; _lbIndex = 0; }
+
+  _lbShow();
+  document.getElementById('lightbox-overlay').classList.add('open');
+  document.addEventListener('keydown', _lbKeyHandler);
+}
+
+function _lbShow() {
+  const img = document.getElementById('lightbox-img');
+  const cap = document.getElementById('lightbox-caption');
+  img.style.opacity = '0';
+  img.src = _lbImages[_lbIndex];
+  img.onload = () => { img.style.opacity = '1'; };
+  document.getElementById('lb-prev').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  document.getElementById('lb-next').style.display = _lbImages.length > 1 ? 'flex' : 'none';
+  cap.textContent = _lbImages.length > 1 ? `${_lbIndex + 1} / ${_lbImages.length}` : '';
+}
+
+function lbPrev() { _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length; _lbShow(); }
+function lbNext() { _lbIndex = (_lbIndex + 1) % _lbImages.length; _lbShow(); }
+
+function closeLightbox() {
+  const overlay = document.getElementById('lightbox-overlay');
+  if (overlay) overlay.classList.remove('open');
+  document.removeEventListener('keydown', _lbKeyHandler);
+}
+
+function closeLightboxOnBg(e) {
+  if (e.target === document.getElementById('lightbox-overlay')) closeLightbox();
+}
+
+function _lbKeyHandler(e) {
+  if (e.key === 'Escape')     closeLightbox();
+  if (e.key === 'ArrowRight') lbNext();
+  if (e.key === 'ArrowLeft')  lbPrev();
+}
 
 // =====================================================================
 // STARTUP
