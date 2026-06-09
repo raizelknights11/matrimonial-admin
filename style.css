@@ -606,60 +606,6 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 
 .results-bar .count { color: var(--gold); font-weight: 600; }
 
-/* Download Manager */
-.dl-search-wrap { margin-bottom: 12px; }
-
-.dl-search-wrap input {
-  width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 14px;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  color: var(--text);
-  outline: none;
-}
-
-.dl-search-wrap input:focus { border-color: var(--gold-dim); }
-.dl-search-wrap input::placeholder { color: var(--text-dim); }
-
-.dl-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.dl-row:last-child { border-bottom: none; }
-.dl-info { flex: 1; min-width: 0; }
-.dl-name { font-size: 14px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dl-uid { font-size: 11px; color: var(--text-dim); margin-top: 2px; font-weight: 600; }
-.dl-files { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
-
-.dl-tag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px; }
-.dl-tag.photo { background: rgba(30,90,154,0.1); color: var(--groom-color); border: 1px solid rgba(30,90,154,0.2); }
-.dl-tag.horo  { background: rgba(122,82,24,0.1); color: var(--gold);        border: 1px solid rgba(122,82,24,0.2); }
-
-.dl-btn {
-  background: var(--gold);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.dl-btn:hover { background: var(--gold-light); }
-.dl-btn:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; }
-
 /* Responsive */
 @media (max-width: 768px) {
   .brand-header { padding: 12px 16px 10px; }
@@ -696,8 +642,6 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   .modal-key { min-width: 90px; font-size: 10px; }
   .modal-detail-row { gap: 8px; }
 
-  .dl-row { flex-wrap: wrap; }
-  .dl-btn { width: 100%; text-align: center; margin-top: 4px; }
 }
 
 @media (max-width: 400px) {
