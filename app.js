@@ -4,23 +4,19 @@
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
 
-// ── Access levels ─────────────────────────────────────────────────────
 // 'admin' → sees everything including phone, address, email
 // 'guest' → HIDDEN_FOR_GUEST fields are masked
 const PASSWORDS = {
-  'Kamala1970': 'admin',   // ← change these passwords freely
+  'Kamala1970': 'admin',
   'Guest1970':  'guest',
 };
 
-// ── Fields to hide from guest access ─────────────────────────────────
-// Add or remove CSV column names — must match the header exactly
 const HIDDEN_FOR_GUEST = [
   'Phone Number',
   'Address',
   'Email Address',
 ];
 
-// ── How masked values appear to guests ───────────────────────────────
 const MASK_FN = {
   'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),
   'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',
@@ -29,90 +25,34 @@ const MASK_FN = {
 
 // =====================================================================
 
-const IMG_EXTENSIONS  = ['jpg', 'jpeg', 'png', 'webp'];
-const HORO_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-
 let allProfiles  = [];
 let filtered     = [];
 let activeFilter = 'all';
-let currentRole  = null;  // null = not logged in | 'admin' | 'guest'
-
-// ── Privacy toggle (admin can preview guest view) ─────────────────────
+let currentRole  = null;
 let _previewGuest = false;
 
 // =====================================================================
-// FILE PATH HELPERS
+// GOOGLE DRIVE URL HELPERS
 // =====================================================================
 
-function profileFolder(uid) {
-  return `./profiles/${uid.trim()}`;
-}
-
-function photoCandidates(uid, slot) {
-  const base  = profileFolder(uid);
-  const names = [`photo${slot}`, `${slot}`, `Photo${slot}`, `image${slot}`, `img${slot}`];
-  const paths = [];
-  for (const name of names) {
-    for (const ext of IMG_EXTENSIONS) {
-      paths.push(`${base}/${name}.${ext}`);
-    }
-  }
-  return paths;
-}
-
-function horoscopeCandidates(uid) {
-  return HORO_EXTENSIONS.map(ext => `${profileFolder(uid)}/horoscope.${ext}`);
-}
-
-async function urlExists(url) {
-  try {
-    const r = await fetch(url, { method: 'HEAD' });
-    return r.ok;
-  } catch { return false; }
-}
-
-async function findHoroscope(uid) {
-  for (const url of horoscopeCandidates(uid)) {
-    if (await urlExists(url)) return url;
-  }
+// Converts any Drive share/view URL → thumbnail URL for display
+function driveViewUrl(url) {
+  if (!url || !url.trim()) return null;
+  const m = url.match(/\/d\/([^\/\?&]+)/);
+  if (m)  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
+  const m2 = url.match(/id=([^&]+)/);
+  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w600`;
   return null;
 }
 
-// =====================================================================
-// IMAGE WITH FALLBACK
-// =====================================================================
-
-// localCandidates: UID-prefixed local paths tried first
-// driveUrl: raw Google Drive URL from CSV — used only if all local paths fail
-function buildImgWithFallback(localCandidates, driveUrl, placeholderSymbol) {
-  const all          = [...localCandidates];
-  const driveFallback = driveViewUrl(driveUrl);
-  if (driveFallback) all.push(driveFallback);
-  const candidatesAttr = all.join('|');
-  return `<img
-    src="${all[0]}"
-    data-candidates="${candidatesAttr}"
-    data-idx="0"
-    onerror="tryNextImg(this,'${placeholderSymbol}')"
-    onload="this.closest('.image-slide').classList.remove('img-loading')"
-    onclick="openLightbox(this)"
-    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;"
-    alt="Profile photo"
-  >`;
-}
-
-function tryNextImg(img, symbol) {
-  const candidates = img.dataset.candidates.split('|');
-  let idx = parseInt(img.dataset.idx) + 1;
-  if (idx < candidates.length) {
-    img.dataset.idx = idx;
-    img.closest('.image-slide')?.classList.add('img-loading');
-    img.src = candidates[idx];
-  } else {
-    const slide = img.closest('.image-slide');
-    if (slide) slide.classList.remove('img-loading');
-    img.parentElement.innerHTML = `<div class="img-placeholder">${symbol}</div>`;
-  }
+// Converts any Drive share/view URL → direct open/download URL
+function driveDirectUrl(url) {
+  if (!url || !url.trim()) return null;
+  const m = url.match(/\/d\/([^\/\?&]+)/);
+  if (m)  return `https://drive.google.com/file/d/${m[1]}/view`;
+  const m2 = url.match(/id=([^&]+)/);
+  if (m2) return `https://drive.google.com/file/d/${m2[1]}/view`;
+  return null;
 }
 
 // =====================================================================
@@ -154,15 +94,11 @@ function parseCSVLine(line) {
 // UTILITIES
 // =====================================================================
 
-// Returns a Date object from a DOB string, or null if unparseable.
-// Handles: plain year "1998", DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, etc.
+// Parses DOB string → Date. Handles: "1998", DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD
 function parseDOB(dob) {
   if (!dob) return null;
   const trimmed = dob.trim();
-
-  // Plain 4-digit year e.g. "1998"
   if (/^\d{4}$/.test(trimmed)) return new Date(parseInt(trimmed), 0, 1);
-
   const parts = trimmed.split(/[\/\-\s]/);
   let d;
   if (parts.length === 3) {
@@ -181,37 +117,10 @@ function getAge(dob) {
   return age > 0 && age < 120 ? age + ' yrs' : '—';
 }
 
-function driveDirectUrl(url) {
-  if (!url) return null;
-  const m = url.match(/\/d\/([^\/\?&]+)/);
-  if (m)  return `https://drive.google.com/uc?export=download&id=${m[1]}`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/uc?export=download&id=${m2[1]}`;
-  return url;
-}
-
-function driveViewUrl(url) {
-  if (!url) return null;
-  const m = url.match(/\/d\/([^\/\?&]+)/);
-  if (m)  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w600`;
-  return url;
-}
-
-function extFromUrl(url) {
-  const lower = (url || '').toLowerCase();
-  if (lower.includes('.pdf'))  return 'pdf';
-  if (lower.includes('.png'))  return 'png';
-  if (lower.includes('.webp')) return 'webp';
-  return 'jpg';
-}
-
 // =====================================================================
 // ACCESS CONTROL
 // =====================================================================
 
-// Returns display value for a field — masked if guest + field is in HIDDEN_FOR_GUEST
 function fieldValue(key, val) {
   if (!val) return '—';
   const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
@@ -223,22 +132,48 @@ function fieldValue(key, val) {
   return val;
 }
 
-function maskPhone(val)   { return fieldValue('Phone Number', val); }
-function maskAddress(val) { return fieldValue('Address', val); }
-
 // =====================================================================
 // CARD RENDERER
 // =====================================================================
 
-function createCard(p) {
-  const uid    = p['Unique ID'].trim();
+// Card DOM nodes are cached by UID so re-sorts just reorder them
+const _cardCache = new Map();
+
+function getCardNode(p) {
+  const uid = p['Unique ID'].trim();
+  if (_cardCache.has(uid)) return _cardCache.get(uid);
+  const div = document.createElement('div');
+  div.innerHTML = buildCardHTML(p);
+  const node = div.firstElementChild;
+  _cardCache.set(uid, node);
+  return node;
+}
+
+function buildCardHTML(p) {
+  const uid     = p['Unique ID'].trim();
   const isBride = p['Filling the Form Of'] === 'Bride';
-  const type   = isBride ? 'bride' : 'groom';
-  const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
-  const age    = getAge(p['Date Of Birth']);
-  const symbol = isBride ? '♀' : '♂';
-  const drivePhoto1 = p['Photo 1 - of Bride or Groom'] || '';
-  const drivePhoto2 = p['Photo 2 - of Bride or Groom'] || '';
+  const type    = isBride ? 'bride' : 'groom';
+  const cardId  = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
+  const age     = getAge(p['Date Of Birth']);
+  const symbol  = isBride ? '♀' : '♂';
+
+  // Use Drive thumbnail URLs directly — no local probing
+  const photo1url = driveViewUrl(p['Photo 1 - of Bride or Groom'] || '');
+  const photo2url = driveViewUrl(p['Photo 2 - of Bride or Groom'] || '');
+
+  const img1 = photo1url
+    ? `<img src="${photo1url}" onerror="this.parentElement.innerHTML='<div class=img-placeholder>${symbol}</div>'" onload="this.closest('.image-slide').classList.remove('img-loading')" onclick="openLightbox(this)" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;" alt="Photo 1">`
+    : `<div class="img-placeholder">${symbol}</div>`;
+
+  const img2 = photo2url
+    ? `<img src="${photo2url}" onerror="this.parentElement.innerHTML='<div class=img-placeholder>${symbol}</div>'" onload="this.closest('.image-slide').classList.remove('img-loading')" onclick="openLightbox(this)" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;" alt="Photo 2">`
+    : `<div class="img-placeholder">${symbol}</div>`;
+
+  // Horoscope: Drive URL directly from CSV — no HEAD requests
+  const horoViewUrl = driveDirectUrl(p['Horoscope'] || '');
+  const horoBtn = horoViewUrl
+    ? `<a class="horoscope-btn" href="${horoViewUrl}" target="_blank">✦ View Horoscope</a>`
+    : `<button class="horoscope-btn" style="opacity:0.4;cursor:not-allowed" disabled>✦ No Horoscope</button>`;
 
   const effRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
   const contactHtml = effRole === 'admin'
@@ -256,12 +191,8 @@ function createCard(p) {
     <div class="profile-card ${type}" id="${cardId}">
       <div class="card-images">
         <div class="image-slider" id="${cardId}-slider">
-          <div class="image-slide active img-loading" data-idx="0">
-            ${buildImgWithFallback(photoCandidates(uid, 1), drivePhoto1, symbol)}
-          </div>
-          <div class="image-slide img-loading" data-idx="1">
-            ${buildImgWithFallback(photoCandidates(uid, 2), drivePhoto2, symbol)}
-          </div>
+          <div class="image-slide active${photo1url ? ' img-loading' : ''}" data-idx="0">${img1}</div>
+          <div class="image-slide${photo2url ? ' img-loading' : ''}" data-idx="1">${img2}</div>
           <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
           <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
           <div class="img-count-badge"><span class="${cardId}-cur">1</span>/2</div>
@@ -282,8 +213,8 @@ function createCard(p) {
             <span class="tag ${type}">${p['Filling the Form Of']}</span>
             ${age !== '—' ? `<span class="tag neutral">${age}</span>` : ''}
             ${p['Height (in feet) - example 5 / 5`2 / 5`11'] ? `<span class="tag neutral">${p['Height (in feet) - example 5 / 5`2 / 5`11']}</span>` : ''}
-            ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`    : ''}
-            ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>`  : ''}
+            ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`   : ''}
+            ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>` : ''}
           </div>
         </div>
 
@@ -338,25 +269,12 @@ function createCard(p) {
         </div>
 
         <div class="card-footer">
-          <span id="${cardId}-horo">
-            <button class="horoscope-btn" style="opacity:0.4;cursor:not-allowed" disabled>✦ No Horoscope</button>
-          </span>
+          ${horoBtn}
           <button class="contact-btn" onclick="openModal('${uid}')">⊞ Full Details</button>
         </div>
       </div>
     </div>
   `;
-}
-
-async function injectHoroscopeButtons() {
-  for (const p of filtered) {
-    const uid    = p['Unique ID'].trim();
-    const cardId = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
-    const slot   = document.getElementById(`${cardId}-horo`);
-    if (!slot) continue;
-    const url = await findHoroscope(uid);
-    if (url) slot.innerHTML = `<a class="horoscope-btn" href="${url}" target="_blank">✦ View Horoscope</a>`;
-  }
 }
 
 // =====================================================================
@@ -421,7 +339,8 @@ async function openModal(uid) {
         <div class="modal-val">${v}</div>
       </div>`).join('');
 
-  const horoUrl = await findHoroscope(uid);
+  // Horoscope in modal — direct from CSV, no HEAD requests
+  const horoUrl = driveDirectUrl(p['Horoscope'] || '');
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
@@ -441,7 +360,7 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
 });
 
 // =====================================================================
-// SEARCH & FILTERS
+// SEARCH, FILTERS & SORT
 // =====================================================================
 
 function clearSearch() {
@@ -510,18 +429,23 @@ function applyFilters() {
 }
 
 // =====================================================================
-// GRID RENDER
+// GRID RENDER — reorders cached DOM nodes, never rebuilds them
 // =====================================================================
 
 function renderGrid() {
   const grid = document.getElementById('grid');
   document.getElementById('results-count').textContent = filtered.length;
+
   if (filtered.length === 0) {
     grid.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><div>No profiles match your filters</div></div>`;
     return;
   }
-  grid.innerHTML = filtered.map(createCard).join('');
-  injectHoroscopeButtons();
+
+  // Clear only non-card children (e.g. empty-state div), then append/reorder cards
+  grid.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  filtered.forEach(p => fragment.appendChild(getCardNode(p)));
+  grid.appendChild(fragment);
 }
 
 function populateFilters() {
@@ -660,6 +584,7 @@ function togglePrivacy() {
     btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
     btn.classList.toggle('privacy-active', _previewGuest);
   }
+  _cardCache.clear();
   renderGrid();
 }
 
@@ -667,7 +592,6 @@ function togglePrivacy() {
 // LIGHTBOX
 // =====================================================================
 
-// Inject lightbox DOM once on page load
 (function createLightboxDOM() {
   const el = document.createElement('div');
   el.innerHTML = `
