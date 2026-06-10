@@ -4,6 +4,7 @@
 
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTjd0qi4vnm8rLuYE-J01S4Lgki9zy_CXcO16kZqc2G9n2OLBx0fOITQUSY1hGUiNol-eL5tDrrLGPj/pub?gid=212796903&single=true&output=csv';
 
+// ── Access levels ─────────────────────────────────────────────────────
 // 'admin' → sees everything including phone, address, email
 // 'guest' → HIDDEN_FOR_GUEST fields are masked
 const PASSWORDS = {
@@ -11,12 +12,16 @@ const PASSWORDS = {
   'Guest1970':  'guest',
 };
 
+// ── Fields to hide from guest access ─────────────────────────────────
 const HIDDEN_FOR_GUEST = [
   'Phone Number',
   'Address',
   'Email Address',
+  "Father's Phone Number",
+  "Mother's Phone Number"
 ];
 
+// ── How masked values appear to guests ───────────────────────────────
 const MASK_FN = {
   'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),
   'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',
@@ -28,31 +33,57 @@ const MASK_FN = {
 let allProfiles  = [];
 let filtered     = [];
 let activeFilter = 'all';
-let currentRole  = null;
+let currentRole  = null;  // null = not logged in | 'admin' | 'guest'
 let _previewGuest = false;
 
 // =====================================================================
-// GOOGLE DRIVE URL HELPERS
+// IMAGE & HOROSCOPE — Drive-only, no local probing
 // =====================================================================
 
-// Converts any Drive share/view URL → thumbnail URL for display
-function driveViewUrl(url) {
-  if (!url || !url.trim()) return null;
-  const m = url.match(/\/d\/([^\/\?&]+)/);
-  if (m)  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w600`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w600`;
+// Extract a Google Drive file ID from any Drive URL format
+function driveFileId(url) {
+  if (!url) return null;
+  const m1 = url.match(/\/d\/([^\/\?&]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/[?&]id=([^&]+)/);
+  if (m2) return m2[1];
   return null;
 }
 
-// Converts any Drive share/view URL → direct open/download URL
+// Thumbnail URL — used for displaying photos in cards/lightbox
+function driveThumbUrl(url, size = 'w600') {
+  const id = driveFileId(url);
+  return id ? `https://drive.google.com/thumbnail?id=${id}&sz=${size}` : null;
+}
+
+// Direct download URL — used for opening horoscopes
 function driveDirectUrl(url) {
-  if (!url || !url.trim()) return null;
-  const m = url.match(/\/d\/([^\/\?&]+)/);
-  if (m)  return `https://drive.google.com/file/d/${m[1]}/view`;
-  const m2 = url.match(/id=([^&]+)/);
-  if (m2) return `https://drive.google.com/file/d/${m2[1]}/view`;
-  return null;
+  const id = driveFileId(url);
+  return id ? `https://drive.google.com/file/d/${id}/view` : null;
+}
+
+// ── Horoscope cache — never re-fetches the same UID ──────────────────
+// Stores: null (not checked) | false (no horoscope) | string URL
+const _horoCache = {};
+
+function getHoroscopeUrl(p) {
+  // Horoscope is a Drive URL stored directly in the CSV column
+  return driveDirectUrl(p['Horoscope'] || '') || null;
+}
+
+function buildImg(driveUrl, symbol) {
+  const thumb = driveThumbUrl(driveUrl);
+  if (!thumb) {
+    return `<div class="img-placeholder">${symbol}</div>`;
+  }
+  return `<img
+    src="${thumb}"
+    onerror="this.parentElement.innerHTML='<div class=\\'img-placeholder\\'>${symbol}</div>'"
+    onload="this.closest('.image-slide').classList.remove('img-loading')"
+    onclick="openLightbox(this)"
+    style="width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in;"
+    alt="Profile photo"
+  >`;
 }
 
 // =====================================================================
@@ -94,19 +125,20 @@ function parseCSVLine(line) {
 // UTILITIES
 // =====================================================================
 
-// Parses DOB string → Date. Handles: "1998", DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD
+// Returns a Date from a DOB string, or null.
+// Handles: "1998", "15/08/1998", "1998-08-15", "08/15/1998", etc.
 function parseDOB(dob) {
   if (!dob) return null;
-  const trimmed = dob.trim();
-  if (/^\d{4}$/.test(trimmed)) return new Date(parseInt(trimmed), 0, 1);
-  const parts = trimmed.split(/[\/\-\s]/);
+  const t = dob.trim();
+  if (/^\d{4}$/.test(t)) return new Date(parseInt(t), 0, 1);
+  const parts = t.split(/[\/\-\s]/);
   let d;
   if (parts.length === 3) {
     const n = parts.map(Number);
     if      (n[2] > 1900) d = new Date(n[2], n[0] - 1, n[1]);
     else if (n[0] > 1900) d = new Date(n[0], n[1] - 1, n[2]);
     else                  d = new Date(n[2], n[1] - 1, n[0]);
-  } else { d = new Date(trimmed); }
+  } else { d = new Date(t); }
   return isNaN(d) ? null : d;
 }
 
@@ -136,46 +168,21 @@ function fieldValue(key, val) {
 // CARD RENDERER
 // =====================================================================
 
-// Card DOM nodes are cached by UID so re-sorts just reorder them
-const _cardCache = new Map();
+// Card DOM nodes are cached by UID so re-sorting never rebuilds them
+const _cardCache = {};
 
-function getCardNode(p) {
+function getOrCreateCard(p) {
   const uid = p['Unique ID'].trim();
-  if (_cardCache.has(uid)) return _cardCache.get(uid);
-  const div = document.createElement('div');
-  div.innerHTML = buildCardHTML(p);
-  const node = div.firstElementChild;
-  _cardCache.set(uid, node);
-  return node;
-}
+  if (_cardCache[uid]) return _cardCache[uid];
 
-function buildCardHTML(p) {
-  const uid     = p['Unique ID'].trim();
   const isBride = p['Filling the Form Of'] === 'Bride';
   const type    = isBride ? 'bride' : 'groom';
   const cardId  = 'card-' + uid.replace(/[^a-z0-9]/gi, '');
   const age     = getAge(p['Date Of Birth']);
   const symbol  = isBride ? '♀' : '♂';
 
-  // Use Drive thumbnail URLs directly — no local probing
-  const photo1url = driveViewUrl(p['Photo 1 - of Bride or Groom'] || '');
-  const photo2url = driveViewUrl(p['Photo 2 - of Bride or Groom'] || '');
-
-  const img1 = photo1url
-    ? `<img src="${photo1url}" onerror="this.parentElement.innerHTML='<div class=img-placeholder>${symbol}</div>'" onload="this.closest('.image-slide').classList.remove('img-loading')" onclick="openLightbox(this)" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;" alt="Photo 1">`
-    : `<div class="img-placeholder">${symbol}</div>`;
-
-  const img2 = photo2url
-    ? `<img src="${photo2url}" onerror="this.parentElement.innerHTML='<div class=img-placeholder>${symbol}</div>'" onload="this.closest('.image-slide').classList.remove('img-loading')" onclick="openLightbox(this)" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;" alt="Photo 2">`
-    : `<div class="img-placeholder">${symbol}</div>`;
-
-  // Horoscope: Drive URL directly from CSV — no HEAD requests
-  const horoViewUrl = driveDirectUrl(p['Horoscope'] || '');
-  const horoBtn = horoViewUrl
-    ? `<a class="horoscope-btn" href="${horoViewUrl}" target="_blank">✦ View Horoscope</a>`
-    : `<button class="horoscope-btn" style="opacity:0.4;cursor:not-allowed" disabled>✦ No Horoscope</button>`;
-
-  const effRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  const effRole    = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+  // Guests simply don't see the contact section — no notice, no clutter
   const contactHtml = effRole === 'admin'
     ? `<div class="detail-section">
         <div class="section-label">Contact</div>
@@ -185,96 +192,113 @@ function buildCardHTML(p) {
           <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Address</div><div class="detail-val">${p['Address'] || '—'}</div></div>
         </div>
       </div>`
-    : `<div class="contact-hidden-notice">🔒 Contact details hidden</div>`;
+    : '';
 
-  return `
-    <div class="profile-card ${type}" id="${cardId}">
-      <div class="card-images">
-        <div class="image-slider" id="${cardId}-slider">
-          <div class="image-slide active${photo1url ? ' img-loading' : ''}" data-idx="0">${img1}</div>
-          <div class="image-slide${photo2url ? ' img-loading' : ''}" data-idx="1">${img2}</div>
-          <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
-          <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
-          <div class="img-count-badge"><span class="${cardId}-cur">1</span>/2</div>
-          <div class="img-nav">
-            <button class="img-dot active" onclick="goSlide('${cardId}',0)"></button>
-            <button class="img-dot"        onclick="goSlide('${cardId}',1)"></button>
-          </div>
+  // Horoscope opens in lightbox — no new tab
+  const horoUrl = getHoroscopeUrl(p);
+  const horoHtml = horoUrl
+    ? `<button class="horoscope-btn" onclick="openHoroscopeLightbox('${horoUrl}','${uid}')">✦ View Horoscope</button>`
+    : `<button class="horoscope-btn" style="opacity:0.4;cursor:not-allowed" disabled>✦ No Horoscope</button>`;
+
+  const el = document.createElement('div');
+  el.className = `profile-card ${type}`;
+  el.id = cardId;
+  el.innerHTML = `
+    <div class="card-images">
+      <div class="image-slider" id="${cardId}-slider">
+        <div class="image-slide active img-loading" data-idx="0">
+          ${buildImg(p['Photo 1 - of Bride or Groom'], symbol)}
         </div>
-      </div>
-
-      <div class="card-details">
-        <div class="card-header">
-          <div class="name-row">
-            <div class="profile-name">${p['Name'] || '—'}</div>
-            <div class="profile-id">${uid}</div>
-          </div>
-          <div class="tag-row">
-            <span class="tag ${type}">${p['Filling the Form Of']}</span>
-            ${age !== '—' ? `<span class="tag neutral">${age}</span>` : ''}
-            ${p['Height (in feet) - example 5 / 5`2 / 5`11'] ? `<span class="tag neutral">${p['Height (in feet) - example 5 / 5`2 / 5`11']}</span>` : ''}
-            ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`   : ''}
-            ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>` : ''}
-          </div>
+        <div class="image-slide img-loading" data-idx="1">
+          ${buildImg(p['Photo 2 - of Bride or Groom'], symbol)}
         </div>
-
-        <div class="card-scroll">
-          <div class="detail-section">
-            <div class="section-label">Personal</div>
-            <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">DOB</div><div class="detail-val">${p['Date Of Birth'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Birth Place</div><div class="detail-val">${p['Place of Birth'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Gothra</div><div class="detail-val">${p['Gothra'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Sub-Caste</div><div class="detail-val">${p['Sub Caste'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Mata</div><div class="detail-val">${p['ಮಠ - Mata'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Charana</div><div class="detail-val">${p['Charana'] || '—'}</div></div>
-            </div>
-          </div>
-          <div class="divider"></div>
-          <div class="detail-section">
-            <div class="section-label">Professional</div>
-            <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Education</div><div class="detail-val">${p['Education '] || p['Education'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Field</div><div class="detail-val">${p['Work Field'] || '—'}</div></div>
-              <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Company / Role</div><div class="detail-val">${p['Currently Working-In(Company Name) and As(Position)'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Salary</div><div class="detail-val">${p['Salary(LPA)'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Degree</div><div class="detail-val">${p['Mention your degrees '] || p['Mention your degrees'] || '—'}</div></div>
-            </div>
-          </div>
-          <div class="divider"></div>
-          <div class="detail-section">
-            <div class="section-label">Family</div>
-            <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Father</div><div class="detail-val">${p["Father's Name"] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Occ.</div><div class="detail-val">${p['Occupation '] || p['Occupation'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Mother</div><div class="detail-val">${p["Mother's Name"] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Siblings</div><div class="detail-val">${p['Siblings'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Father's Native</div><div class="detail-val">${p["Father's Native"] || '—'}</div></div>
-            </div>
-          </div>
-          <div class="divider"></div>
-          <div class="detail-section">
-            <div class="section-label">Preferences</div>
-            <div class="detail-grid">
-              <div class="detail-item"><div class="detail-key">Currently In</div><div class="detail-val">${p['Staying In'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Relocation</div><div class="detail-val">${p['Planning To Relocate'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Age Gap</div><div class="detail-val">${p['Age Gap'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Abroad</div><div class="detail-val">${p['Abroad Relocation'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Language</div><div class="detail-val">${p['Language Preference '] || p['Language Preference'] || '—'}</div></div>
-              <div class="detail-item"><div class="detail-key">Same Gothra</div><div class="detail-val">${p['Will agree on Same Gothra'] || '—'}</div></div>
-            </div>
-          </div>
-          <div class="divider"></div>
-          ${contactHtml}
-        </div>
-
-        <div class="card-footer">
-          ${horoBtn}
-          <button class="contact-btn" onclick="openModal('${uid}')">⊞ Full Details</button>
+        <button class="img-arrow prev" onclick="prevSlide('${cardId}')">‹</button>
+        <button class="img-arrow next" onclick="nextSlide('${cardId}')">›</button>
+        <div class="img-count-badge"><span class="${cardId}-cur">1</span>/2</div>
+        <div class="img-nav">
+          <button class="img-dot active" onclick="goSlide('${cardId}',0)"></button>
+          <button class="img-dot"        onclick="goSlide('${cardId}',1)"></button>
         </div>
       </div>
     </div>
+
+    <div class="card-details">
+      <div class="card-header">
+        <div class="name-row">
+          <div class="profile-name">${p['Name'] || '—'}</div>
+          <div class="uid-row">
+            <span class="profile-id">${uid}</span>
+            <button class="uid-copy-btn" onclick="copyUID('${uid}',this)" title="Copy ID">⧉</button>
+          </div>
+        </div>
+        <div class="tag-row">
+          <span class="tag ${type}">${p['Filling the Form Of']}</span>
+          ${age !== '—' ? `<span class="tag neutral">${age}</span>` : ''}
+          ${p['Height (in feet) - example 5 / 5`2 / 5`11'] ? `<span class="tag neutral">${p['Height (in feet) - example 5 / 5`2 / 5`11']}</span>` : ''}
+          ${p['Rashi']     ? `<span class="tag neutral">${p['Rashi']}</span>`   : ''}
+          ${p['Nakshatra'] ? `<span class="tag green">${p['Nakshatra']}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="card-scroll">
+        <div class="detail-section">
+          <div class="section-label">Personal</div>
+          <div class="detail-grid">
+            <div class="detail-item"><div class="detail-key">DOB</div><div class="detail-val">${p['Date Of Birth'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Birth Place</div><div class="detail-val">${p['Place of Birth'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Gothra</div><div class="detail-val">${p['Gothra'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Sub-Caste</div><div class="detail-val">${p['Sub Caste'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Mata</div><div class="detail-val">${p['ಮಠ - Mata'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Charana</div><div class="detail-val">${p['Charana'] || '—'}</div></div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="detail-section">
+          <div class="section-label">Professional</div>
+          <div class="detail-grid">
+            <div class="detail-item"><div class="detail-key">Education</div><div class="detail-val">${p['Education '] || p['Education'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Field</div><div class="detail-val">${p['Work Field'] || '—'}</div></div>
+            <div class="detail-item" style="grid-column:1/-1"><div class="detail-key">Company / Role</div><div class="detail-val">${p['Currently Working-In(Company Name) and As(Position)'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Salary</div><div class="detail-val">${p['Salary(LPA)'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Degree</div><div class="detail-val">${p['Mention your degrees '] || p['Mention your degrees'] || '—'}</div></div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="detail-section">
+          <div class="section-label">Family</div>
+          <div class="detail-grid">
+            <div class="detail-item"><div class="detail-key">Father</div><div class="detail-val">${p["Father's Name"] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Occ.</div><div class="detail-val">${p['Occupation '] || p['Occupation'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Mother</div><div class="detail-val">${p["Mother's Name"] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Siblings</div><div class="detail-val">${p['Siblings'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Father's Native</div><div class="detail-val">${p["Father's Native"] || '—'}</div></div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="detail-section">
+          <div class="section-label">Preferences</div>
+          <div class="detail-grid">
+            <div class="detail-item"><div class="detail-key">Currently In</div><div class="detail-val">${p['Staying In'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Relocation</div><div class="detail-val">${p['Planning To Relocate'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Age Gap</div><div class="detail-val">${p['Age Gap'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Abroad</div><div class="detail-val">${p['Abroad Relocation'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Language</div><div class="detail-val">${p['Language Preference '] || p['Language Preference'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">Same Gothra</div><div class="detail-val">${p['Will agree on Same Gothra'] || '—'}</div></div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        ${contactHtml}
+      </div>
+
+      <div class="card-footer">
+        ${horoHtml}
+        <button class="contact-btn" onclick="openModal('${uid}')">⊞ Full Details</button>
+      </div>
+    </div>
   `;
+
+  _cardCache[uid] = el;
+  return el;
 }
 
 // =====================================================================
@@ -285,7 +309,7 @@ function goSlide(id, idx) {
   const slider = document.getElementById(id + '-slider');
   if (!slider) return;
   slider.querySelectorAll('.image-slide').forEach((s, i) => s.classList.toggle('active', i === idx));
-  slider.querySelectorAll('.img-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+  slider.querySelectorAll('.img-dot').forEach((d, i)     => d.classList.toggle('active', i === idx));
   const cur = slider.querySelector(`.${id}-cur`);
   if (cur) cur.textContent = idx + 1;
 }
@@ -318,14 +342,15 @@ async function openModal(uid) {
   document.getElementById('modal-id').textContent =
     uid + ' · ' + p['Filling the Form Of'] + ' · Registered ' + (p['Timestamp'] || '').split(' ')[0];
 
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+
+  // Fields always excluded from the modal table regardless of role
   const skip = new Set([
     'Photo 1 - of Bride or Groom',
     'Photo 2 - of Bride or Groom',
     'Horoscope',
     '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services',
   ]);
-
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
 
   const rows = Object.entries(p)
     .filter(([k, v]) => {
@@ -339,12 +364,14 @@ async function openModal(uid) {
         <div class="modal-val">${v}</div>
       </div>`).join('');
 
-  // Horoscope in modal — direct from CSV, no HEAD requests
-  const horoUrl = driveDirectUrl(p['Horoscope'] || '');
+  const horoUrl = getHoroscopeUrl(p);
   const horoRow = horoUrl ? `
     <div class="modal-detail-row">
       <div class="modal-key">Horoscope</div>
-      <div class="modal-val"><a href="${horoUrl}" target="_blank" style="color:var(--gold)">Open Horoscope ↗</a></div>
+      <div class="modal-val">
+        <button class="horoscope-btn" style="font-size:12px;padding:5px 12px"
+          onclick="openHoroscopeLightbox('${horoUrl}','${uid}')">✦ View Horoscope</button>
+      </div>
     </div>` : '';
 
   document.getElementById('modal-body').innerHTML = rows + horoRow;
@@ -360,7 +387,7 @@ document.getElementById('modal-overlay').addEventListener('click', function(e) {
 });
 
 // =====================================================================
-// SEARCH, FILTERS & SORT
+// SEARCH & FILTERS
 // =====================================================================
 
 function clearSearch() {
@@ -429,7 +456,7 @@ function applyFilters() {
 }
 
 // =====================================================================
-// GRID RENDER — reorders cached DOM nodes, never rebuilds them
+// GRID RENDER — reorders existing DOM nodes, never rebuilds them
 // =====================================================================
 
 function renderGrid() {
@@ -441,10 +468,10 @@ function renderGrid() {
     return;
   }
 
-  // Clear only non-card children (e.g. empty-state div), then append/reorder cards
-  grid.innerHTML = '';
+  // Append/reorder cached card nodes — images are already loaded, no flicker
   const fragment = document.createDocumentFragment();
-  filtered.forEach(p => fragment.appendChild(getCardNode(p)));
+  filtered.forEach(p => fragment.appendChild(getOrCreateCard(p)));
+  grid.innerHTML = '';
   grid.appendChild(fragment);
 }
 
@@ -584,12 +611,39 @@ function togglePrivacy() {
     btn.textContent = _previewGuest ? '🔒 Guest View' : '👁 Hide Details';
     btn.classList.toggle('privacy-active', _previewGuest);
   }
-  _cardCache.clear();
+  // Clear card cache so cards rebuild with correct contact visibility
+  Object.keys(_cardCache).forEach(k => delete _cardCache[k]);
   renderGrid();
 }
 
 // =====================================================================
-// LIGHTBOX
+// COPY UID
+// =====================================================================
+
+function copyUID(uid, btn) {
+  navigator.clipboard.writeText(uid).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('uid-copy-ok');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('uid-copy-ok'); }, 1500);
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = uid;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = '✓';
+    btn.classList.add('uid-copy-ok');
+    setTimeout(() => { btn.textContent = '⧉'; btn.classList.remove('uid-copy-ok'); }, 1500);
+  });
+}
+
+// =====================================================================
+// LIGHTBOX — photos
 // =====================================================================
 
 (function createLightboxDOM() {
@@ -612,10 +666,11 @@ function openLightbox(imgEl) {
   const slider = imgEl.closest('.image-slider');
   const slides = slider ? [...slider.querySelectorAll('.image-slide')] : [];
 
+  // Use higher-res thumbnail for lightbox
   _lbImages = slides
     .map(s => s.querySelector('img'))
     .filter(Boolean)
-    .map(i => i.src)
+    .map(i => i.src.replace('sz=w600', 'sz=w1200'))
     .filter(Boolean);
 
   const activeSlide = slider ? slider.querySelector('.image-slide.active') : null;
@@ -653,9 +708,58 @@ function closeLightboxOnBg(e) {
 }
 
 function _lbKeyHandler(e) {
-  if (e.key === 'Escape')     closeLightbox();
+  if (e.key === 'Escape')     { closeLightbox(); closeHoroscopeLightbox(); }
   if (e.key === 'ArrowRight') lbNext();
   if (e.key === 'ArrowLeft')  lbPrev();
+}
+
+// =====================================================================
+// HOROSCOPE LIGHTBOX — iframe viewer, works for PDF/image/any Drive file
+// =====================================================================
+
+(function createHoroLightboxDOM() {
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <div class="lightbox-overlay horo-lightbox" id="horo-lightbox" onclick="closeHoroOnBg(event)">
+      <div class="horo-lightbox-inner">
+        <div class="horo-lightbox-header">
+          <span class="horo-lightbox-title" id="horo-title">Horoscope</span>
+          <button class="lightbox-close" style="position:static;margin-left:auto" onclick="closeHoroscopeLightbox()">✕</button>
+        </div>
+        <iframe id="horo-frame" class="horo-frame" src="" allowfullscreen></iframe>
+        <div class="horo-lightbox-footer">
+          <span style="font-size:11px;color:rgba(255,255,255,0.35)">
+            If the file doesn't load, your browser may be blocking Drive embeds.
+          </span>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(el.firstElementChild);
+})();
+
+function openHoroscopeLightbox(driveViewUrl, uid) {
+  // Convert view URL to embed URL so it renders inline
+  const id = driveFileId(driveViewUrl);
+  const embedUrl = id
+    ? `https://drive.google.com/file/d/${id}/preview`
+    : driveViewUrl;
+
+  document.getElementById('horo-frame').src = embedUrl;
+  document.getElementById('horo-title').textContent = uid ? `Horoscope — ${uid}` : 'Horoscope';
+  document.getElementById('horo-lightbox').classList.add('open');
+}
+
+function closeHoroscopeLightbox() {
+  const el = document.getElementById('horo-lightbox');
+  if (el) {
+    el.classList.remove('open');
+    // Clear iframe src to stop any ongoing load/audio
+    document.getElementById('horo-frame').src = '';
+  }
+}
+
+function closeHoroOnBg(e) {
+  if (e.target === document.getElementById('horo-lightbox')) closeHoroscopeLightbox();
 }
 
 // =====================================================================
