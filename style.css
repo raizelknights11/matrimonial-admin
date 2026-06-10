@@ -370,9 +370,17 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 .profile-name {
   font-family: 'Cormorant Garamond', serif;
   font-size: 21px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   line-height: 1.2;
+  letter-spacing: 0.2px;
+}
+
+.uid-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
 }
 
 .profile-id {
@@ -385,6 +393,20 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   white-space: nowrap;
   font-weight: 600;
 }
+
+.uid-copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+.uid-copy-btn:hover { background: var(--surface); color: var(--gold); border-color: var(--gold); }
+.uid-copy-btn.uid-copy-ok { color: #4caf50; border-color: #4caf50; }
 
 .tag-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
 
@@ -776,4 +798,55 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   .lightbox-arrow.prev { left: 14px; }
   .lightbox-arrow.next { right: 14px; }
   .lightbox-caption { bottom: 14px; }
+}
+
+/* ── Horoscope lightbox ───────────────────────────────────────────────── */
+.horo-lightbox { align-items: center; justify-content: center; }
+
+.horo-lightbox-inner {
+  display: flex;
+  flex-direction: column;
+  width: min(92vw, 860px);
+  height: min(90vh, 780px);
+  background: #1a1208;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+}
+
+.horo-lightbox-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.horo-lightbox-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 16px;
+  color: rgba(255,255,255,0.85);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  flex: 1;
+}
+
+.horo-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+.horo-lightbox-footer {
+  padding: 8px 16px;
+  background: rgba(0,0,0,0.3);
+  flex-shrink: 0;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .horo-lightbox-inner { width: 100vw; height: 100dvh; border-radius: 0; }
 }
