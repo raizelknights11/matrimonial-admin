@@ -717,7 +717,6 @@ function _lbKeyHandler(e) {
 })();
 
 function openHoroscopeLightbox(driveViewUrl, uid) {
-  // Convert view URL to embed URL so it renders inline
   const id = driveFileId(driveViewUrl);
   const embedUrl = id
     ? `https://drive.google.com/file/d/${id}/preview`
@@ -725,14 +724,7 @@ function openHoroscopeLightbox(driveViewUrl, uid) {
 
   document.getElementById('horo-frame').src = embedUrl;
   document.getElementById('horo-title').textContent = uid ? `Horoscope — ${uid}` : 'Horoscope';
-
-  const overlay = document.getElementById('horo-lightbox');
-  overlay.classList.add('open');
-
-  // Request true browser fullscreen on the inner panel
-  const inner = document.getElementById('horo-lightbox-inner');
-  const req   = inner.requestFullscreen || inner.webkitRequestFullscreen || inner.mozRequestFullScreen;
-  if (req) req.call(inner).catch(() => { /* fullscreen denied — overlay still visible */ });
+  document.getElementById('horo-lightbox').classList.add('open');
 }
 
 function closeHoroscopeLightbox() {
@@ -740,24 +732,6 @@ function closeHoroscopeLightbox() {
   if (el) {
     el.classList.remove('open');
     document.getElementById('horo-frame').src = '';
-  }
-  // Exit fullscreen if we're in it
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
-  }
-}
-
-// When user presses Esc inside fullscreen, browser exits fullscreen automatically —
-// sync by also closing the overlay
-document.addEventListener('fullscreenchange',     _onFullscreenChange);
-document.addEventListener('webkitfullscreenchange', _onFullscreenChange);
-function _onFullscreenChange() {
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-    const el = document.getElementById('horo-lightbox');
-    if (el && el.classList.contains('open')) {
-      el.classList.remove('open');
-      document.getElementById('horo-frame').src = '';
-    }
   }
 }
 
