@@ -811,22 +811,12 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 .horo-lightbox-inner {
   display: flex;
   flex-direction: column;
-  width: min(92vw, 860px);
-  height: min(90vh, 780px);
+  width: 90vw;
+  height: 90vh;
   background: #1a1208;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 32px 80px rgba(0,0,0,0.8);
-}
-
-/* When truly fullscreen, fill the whole screen */
-.horo-lightbox-inner:fullscreen,
-.horo-lightbox-inner:-webkit-full-screen {
-  width: 100vw;
-  height: 100vh;
-  border-radius: 0;
-  max-width: none;
-  max-height: none;
 }
 
 .horo-lightbox-header {
