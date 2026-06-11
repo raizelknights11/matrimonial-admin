@@ -524,7 +524,7 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(26,16,10,0.55);
+  background: rgba(26,16,10,0.6);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -535,7 +535,6 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   pointer-events: none;
   transition: opacity 0.3s;
 }
-
 .modal-overlay.open { opacity: 1; pointer-events: all; }
 
 .modal {
@@ -543,84 +542,230 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   border: 1px solid var(--border);
   border-radius: 20px;
   width: 100%;
-  max-width: 540px;
-  max-height: 88vh;
-  overflow-y: auto;
+  max-width: 960px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
   transform: translateY(20px);
   transition: transform 0.3s;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
-
 .modal-overlay.open .modal { transform: translateY(0); }
 
-.modal-header {
-  padding: 20px 24px 14px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  background: var(--card);
+/* Close button — floats top-right over the banner */
+.modal-close-abs {
+  position: absolute;
+  top: 14px;
+  right: 16px;
   z-index: 10;
-}
-
-.modal-close {
-  background: var(--surface);
+  background: rgba(255,255,255,0.8);
   border: 1px solid var(--border);
   width: 32px; height: 32px;
   border-radius: 50%;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  flex-shrink: 0;
+  backdrop-filter: blur(4px);
+}
+.modal-close-abs:hover { border-color: var(--rose); color: var(--rose); background: #fff; }
+
+/* Scrollable body */
+.modal-body {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-.modal-close:hover { border-color: var(--rose); color: var(--rose); }
-
-.modal-body { padding: 16px 24px 24px; }
-
-.modal-detail-row {
+/* ── Outer layout wrapper ────────────────────────────────────── */
+.md-layout {
   display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* ── Top banner: name + UID ──────────────────────────────────── */
+.md-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 9px 0;
+  padding: 18px 56px 14px 20px; /* right padding leaves room for close btn */
   border-bottom: 1px solid var(--border);
-  align-items: flex-start;
-}
-
-.modal-detail-row:last-child { border-bottom: none; }
-
-.modal-key {
-  min-width: 130px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-dim);
-  padding-top: 2px;
   flex-shrink: 0;
-  font-weight: 500;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  flex-wrap: wrap;
 }
 
-.modal-val {
+.md-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.md-banner-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.md-banner-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+}
+.md-banner-tag.bride { background: rgba(168,56,64,0.08); border-color: rgba(168,56,64,0.3); color: var(--bride-color); }
+.md-banner-tag.groom { background: rgba(30,90,154,0.08); border-color: rgba(30,90,154,0.3); color: var(--groom-color); }
+
+.md-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.md-banner-reg {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+/* ── Main row: photos left + details right ───────────────────── */
+.md-main {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  min-height: 0;
+}
+
+/* Left column — photos stacked vertically */
+.md-left {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px 16px 16px;
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+
+.md-photo {
+  width: 100%;
+  aspect-ratio: 3/4;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: zoom-in;
+  display: block;
+}
+
+.md-photo-placeholder {
+  width: 100%;
+  aspect-ratio: 3/4;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, #ede4d8, #e0d0bc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 40px;
+  color: var(--gold-dim);
+}
+
+/* Right column — details + horoscope button at bottom */
+.md-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Two-column detail grid */
+.md-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+}
+
+.md-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.md-row:nth-child(even) { border-right: none; }
+.md-row:last-child,
+.md-row:nth-last-child(2):nth-child(odd) { border-bottom: none; }
+
+.md-key {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.md-val {
   font-size: 13px;
   color: var(--text);
   line-height: 1.5;
   word-break: break-word;
   overflow-wrap: anywhere;
-  font-weight: 400;
   white-space: pre-wrap;
 }
 
+/* Horoscope button row — below the details grid */
+.md-horo-row {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
 
+.md-horo-btn { width: 100%; text-align: center; }
 
-/* Results bar */
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .modal { max-width: 100%; border-radius: 16px 16px 0 0; max-height: 95vh; }
+  .modal-overlay { padding: 0; align-items: flex-end; }
+
+  .md-main { flex-direction: column; }
+
+  .md-left {
+    width: 100%;
+    flex-direction: row;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    gap: 10px;
+  }
+  .md-photo, .md-photo-placeholder {
+    width: calc(50% - 5px);
+    aspect-ratio: 3/4;
+  }
+
+  .md-grid { grid-template-columns: 1fr; }
+  .md-row { border-right: none; }
+  .md-row:nth-last-child(2):nth-child(odd) { border-bottom: 1px solid var(--border); }
+  .md-row:last-child { border-bottom: none; }
+}
 .results-bar {
   padding: 10px 24px;
   color: var(--text-dim);
@@ -661,13 +806,6 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   .profile-name { font-size: 17px; }
   .card-footer { padding: 6px 12px; }
   .horoscope-btn, .contact-btn { font-size: 11px; padding: 6px 10px; }
-
-  .modal-overlay { padding: 0; align-items: flex-end; }
-  .modal { max-height: 92vh; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  .modal-header { padding: 16px 18px 12px; }
-  .modal-body { padding: 12px 18px 24px; }
-  .modal-key { min-width: 90px; font-size: 10px; }
-  .modal-detail-row { gap: 8px; }
 
 }
 
