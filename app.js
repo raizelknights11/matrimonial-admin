@@ -18,7 +18,8 @@ const HIDDEN_FOR_GUEST = [
   'Address',
   'Email Address',
   "Father's Phone Number",
-  "Mother's Phone Number"
+  "Mother's Phone Number",
+  'Parents Phone Number',
 ];
 
 // =====================================================================
@@ -317,43 +318,82 @@ async function openModal(uid) {
   const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
   if (!p) return;
 
-  document.getElementById('modal-name').textContent = p['Name'] || '—';
-  document.getElementById('modal-id').textContent =
-    uid + ' · ' + p['Filling the Form Of'] + ' · Registered ' + (p['Timestamp'] || '').split(' ')[0];
+  const isBride = p['Filling the Form Of'] === 'Bride';
+  const type    = isBride ? 'bride' : 'groom';
+  const symbol  = isBride ? '♀' : '♂';
 
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-
-  // Fields always excluded from the modal table regardless of role
   const skip = new Set([
-    'Photo 1 - of Bride or Groom',
-    'Photo 2 - of Bride or Groom',
-    'Horoscope',
+    'Unique ID', 'Timestamp', 'Name', 'Filling the Form Of',
+    'Photo 1 - of Bride or Groom', 'Photo 2 - of Bride or Groom', 'Horoscope',
     '* I Herby declare that the above particulars furnished is true and correct for the best of my knowledge and for the purpose of finding bride/ groom for self or family members only and will not use profiles for any commercial purposes including agent activities/ brokerage activities or sharing and forwarding to other groups or platforms. I Accept all terms and conditions of Kathyayini Matrimony Services',
   ]);
 
-  const rows = Object.entries(p)
+  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
+
+  const detailRows = Object.entries(p)
     .filter(([k, v]) => {
       if (!v || !v.trim() || skip.has(k)) return false;
       if (effectiveRole !== 'admin' && HIDDEN_FOR_GUEST.includes(k)) return false;
       return true;
     })
     .map(([k, v]) => `
-      <div class="modal-detail-row">
-        <div class="modal-key">${k.replace(/\s+/g, ' ').trim()}</div>
-        <div class="modal-val">${v}</div>
+      <div class="md-row">
+        <div class="md-key">${k.replace(/\s+/g, ' ').trim()}</div>
+        <div class="md-val">${v}</div>
       </div>`).join('');
 
-  const horoUrl = getHoroscopeUrl(p);
-  const horoRow = horoUrl ? `
-    <div class="modal-detail-row">
-      <div class="modal-key">Horoscope</div>
-      <div class="modal-val">
-        <button class="horoscope-btn" style="font-size:12px;padding:5px 12px"
-          onclick="openHoroscopeLightbox('${horoUrl}','${uid}')">✦ View Horoscope</button>
-      </div>
-    </div>` : '';
+  const photo1 = driveThumbUrl(p['Photo 1 - of Bride or Groom'], 'w600');
+  const photo2 = driveThumbUrl(p['Photo 2 - of Bride or Groom'], 'w600');
 
-  document.getElementById('modal-body').innerHTML = rows + horoRow;
+  function photoEl(src) {
+    if (!src) return `<div class="md-photo-placeholder">${symbol}</div>`;
+    return `<img class="md-photo" src="${src}"
+      onerror="this.outerHTML='<div class=\\"md-photo-placeholder\\">${symbol}</div>'"
+      onclick="openLightboxFromSrc('${src}')"
+      alt="Profile photo">`;
+  }
+
+  const horoUrl = getHoroscopeUrl(p);
+  const horoBtn = horoUrl
+    ? `<button class="horoscope-btn md-horo-btn" onclick="openHoroscopeLightbox('${horoUrl}','${uid}')">✦ View Horoscope</button>`
+    : `<button class="horoscope-btn md-horo-btn" disabled style="opacity:0.4;cursor:not-allowed">✦ No Horoscope</button>`;
+
+  document.getElementById('modal-body').innerHTML = `
+    <div class="md-layout">
+
+      <!-- Top banner: name + UID spanning full width -->
+      <div class="md-banner">
+        <div class="md-banner-left">
+          <span class="md-banner-name">${p['Name'] || '—'}</span>
+          <span class="md-banner-tag ${type}">${p['Filling the Form Of']}</span>
+        </div>
+        <div class="md-banner-right">
+          <button class="uid-copy-btn" onclick="copyUID('${uid}',this)" title="Copy ID">
+            <span class="uid-text">${uid}</span><span class="uid-copy-icon">⧉</span>
+          </button>
+          <span class="md-banner-reg">Registered ${(p['Timestamp'] || '').split(' ')[0]}</span>
+        </div>
+      </div>
+
+      <!-- Main row: photos left, details right -->
+      <div class="md-main">
+        <div class="md-left">
+          ${photoEl(photo1)}
+          ${photoEl(photo2)}
+        </div>
+        <div class="md-right">
+          <div class="md-grid">
+            ${detailRows}
+          </div>
+          <div class="md-horo-row">
+            ${horoBtn}
+          </div>
+        </div>
+      </div>
+
+    </div>
+  `;
+
   document.getElementById('modal-overlay').classList.add('open');
 }
 
@@ -675,6 +715,14 @@ function _lbShow() {
 
 function lbPrev() { _lbIndex = (_lbIndex - 1 + _lbImages.length) % _lbImages.length; _lbShow(); }
 function lbNext() { _lbIndex = (_lbIndex + 1) % _lbImages.length; _lbShow(); }
+
+function openLightboxFromSrc(src) {
+  _lbImages = [src.replace('sz=w600', 'sz=w1200')];
+  _lbIndex  = 0;
+  _lbShow();
+  document.getElementById('lightbox-overlay').classList.add('open');
+  document.addEventListener('keydown', _lbKeyHandler);
+}
 
 function closeLightbox() {
   const overlay = document.getElementById('lightbox-overlay');
