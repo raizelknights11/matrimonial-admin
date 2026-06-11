@@ -12,7 +12,7 @@ const PASSWORDS = {
   'Guest1970':  'guest',
 };
 
-// ── Fields to hide from guest access ─────────────────────────────────
+// ── Fields hidden from guest access (filtered out entirely) ──────────
 const HIDDEN_FOR_GUEST = [
   'Phone Number',
   'Address',
@@ -20,13 +20,6 @@ const HIDDEN_FOR_GUEST = [
   "Father's Phone Number",
   "Mother's Phone Number"
 ];
-
-// ── How masked values appear to guests ───────────────────────────────
-const MASK_FN = {
-  'Phone Number':  v => v.replace(/\d(?=\d{4})/g, '•'),
-  'Address':       v => v.trim().split(/[\s,]+/)[0] + ' …',
-  'Email Address': v => { const [u, d] = v.split('@'); return u.slice(0, 2) + '••@' + (d || ''); },
-};
 
 // =====================================================================
 
@@ -81,7 +74,7 @@ function buildImg(driveUrl, symbol) {
     onerror="this.parentElement.innerHTML='<div class=\\'img-placeholder\\'>${symbol}</div>'"
     onload="this.closest('.image-slide').classList.remove('img-loading')"
     onclick="openLightbox(this)"
-    style="width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in;"
+    style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;"
     alt="Profile photo"
   >`;
 }
@@ -150,21 +143,6 @@ function getAge(dob) {
 }
 
 // =====================================================================
-// ACCESS CONTROL
-// =====================================================================
-
-function fieldValue(key, val) {
-  if (!val) return '—';
-  const effectiveRole = (_previewGuest && currentRole === 'admin') ? 'guest' : currentRole;
-  if (effectiveRole === 'admin') return val;
-  if (HIDDEN_FOR_GUEST.includes(key)) {
-    const fn = MASK_FN[key];
-    return fn ? fn(val) : '••••••';
-  }
-  return val;
-}
-
-// =====================================================================
 // CARD RENDERER
 // =====================================================================
 
@@ -227,8 +205,9 @@ function getOrCreateCard(p) {
         <div class="name-row">
           <div class="profile-name">${p['Name'] || '—'}</div>
           <div class="uid-row">
-            <span class="profile-id">${uid}</span>
-            <button class="uid-copy-btn" onclick="copyUID('${uid}',this)" title="Copy ID">⧉</button>
+            <button class="uid-copy-btn" onclick="copyUID('${uid}',this)" title="Copy ID">
+              <span class="uid-text">${uid}</span><span class="uid-copy-icon">⧉</span>
+            </button>
           </div>
         </div>
         <div class="tag-row">
@@ -512,7 +491,7 @@ async function loadData() {
     if (allCountEl) allCountEl.textContent = allProfiles.length;
 
     populateFilters();
-    filtered = [...allProfiles].sort((a, b) => new Date(b['Timestamp']) - new Date(a['Timestamp']));
+    filtered = [...allProfiles].sort((a, b) => (parseDOB(b['Date Of Birth']) || 0) - (parseDOB(a['Date Of Birth']) || 0));
     renderGrid();
   } catch (e) {
     document.getElementById('grid').innerHTML = `
@@ -721,7 +700,7 @@ function _lbKeyHandler(e) {
   const el = document.createElement('div');
   el.innerHTML = `
     <div class="lightbox-overlay horo-lightbox" id="horo-lightbox" onclick="closeHoroOnBg(event)">
-      <div class="horo-lightbox-inner">
+      <div class="horo-lightbox-inner" id="horo-lightbox-inner">
         <div class="horo-lightbox-header">
           <span class="horo-lightbox-title" id="horo-title">Horoscope</span>
           <button class="lightbox-close" style="position:static;margin-left:auto" onclick="closeHoroscopeLightbox()">✕</button>
@@ -746,15 +725,39 @@ function openHoroscopeLightbox(driveViewUrl, uid) {
 
   document.getElementById('horo-frame').src = embedUrl;
   document.getElementById('horo-title').textContent = uid ? `Horoscope — ${uid}` : 'Horoscope';
-  document.getElementById('horo-lightbox').classList.add('open');
+
+  const overlay = document.getElementById('horo-lightbox');
+  overlay.classList.add('open');
+
+  // Request true browser fullscreen on the inner panel
+  const inner = document.getElementById('horo-lightbox-inner');
+  const req   = inner.requestFullscreen || inner.webkitRequestFullscreen || inner.mozRequestFullScreen;
+  if (req) req.call(inner).catch(() => { /* fullscreen denied — overlay still visible */ });
 }
 
 function closeHoroscopeLightbox() {
   const el = document.getElementById('horo-lightbox');
   if (el) {
     el.classList.remove('open');
-    // Clear iframe src to stop any ongoing load/audio
     document.getElementById('horo-frame').src = '';
+  }
+  // Exit fullscreen if we're in it
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document).catch(() => {});
+  }
+}
+
+// When user presses Esc inside fullscreen, browser exits fullscreen automatically —
+// sync by also closing the overlay
+document.addEventListener('fullscreenchange',     _onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', _onFullscreenChange);
+function _onFullscreenChange() {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    const el = document.getElementById('horo-lightbox');
+    if (el && el.classList.contains('open')) {
+      el.classList.remove('open');
+      document.getElementById('horo-frame').src = '';
+    }
   }
 }
 
