@@ -345,14 +345,6 @@ async function openModal(uid) {
   const photo1 = driveThumbUrl(p['Photo 1 - of Bride or Groom'], 'w600');
   const photo2 = driveThumbUrl(p['Photo 2 - of Bride or Groom'], 'w600');
 
-  function photoEl(src) {
-    if (!src) return `<div class="md-photo-placeholder">${symbol}</div>`;
-    return `<img class="md-photo" src="${src}"
-      onerror="this.outerHTML='<div class=\\"md-photo-placeholder\\">${symbol}</div>'"
-      onclick="openLightboxFromSrc('${src}')"
-      alt="Profile photo">`;
-  }
-
   const horoUrl = getHoroscopeUrl(p);
   const horoBtn = horoUrl
     ? `<button class="horoscope-btn md-horo-btn" onclick="openHoroscopeLightbox('${horoUrl}','${uid}')">✦ View Horoscope</button>`
@@ -360,8 +352,6 @@ async function openModal(uid) {
 
   document.getElementById('modal-body').innerHTML = `
     <div class="md-layout">
-
-      <!-- Top banner: name + UID spanning full width -->
       <div class="md-banner">
         <div class="md-banner-left">
           <span class="md-banner-name">${p['Name'] || '—'}</span>
@@ -374,25 +364,38 @@ async function openModal(uid) {
           <span class="md-banner-reg">Registered ${(p['Timestamp'] || '').split(' ')[0]}</span>
         </div>
       </div>
-
-      <!-- Main row: photos left, details right -->
       <div class="md-main">
-        <div class="md-left">
-          ${photoEl(photo1)}
-          ${photoEl(photo2)}
-        </div>
+        <div class="md-left" id="md-photos"></div>
         <div class="md-right">
-          <div class="md-grid">
-            ${detailRows}
-          </div>
-          <div class="md-horo-row">
-            ${horoBtn}
-          </div>
+          <div class="md-grid">${detailRows}</div>
+          <div class="md-horo-row">${horoBtn}</div>
         </div>
       </div>
+    </div>`;
 
-    </div>
-  `;
+  // Inject photos as real DOM nodes — avoids all URL/quote escaping issues with Drive URLs
+  const photoContainer = document.getElementById('md-photos');
+  [photo1, photo2].forEach(src => {
+    if (!src) {
+      const ph = document.createElement('div');
+      ph.className = 'md-photo-placeholder';
+      ph.textContent = symbol;
+      photoContainer.appendChild(ph);
+      return;
+    }
+    const img = document.createElement('img');
+    img.className = 'md-photo';
+    img.src = src;
+    img.alt = 'Profile photo';
+    img.addEventListener('error', function() {
+      const ph = document.createElement('div');
+      ph.className = 'md-photo-placeholder';
+      ph.textContent = symbol;
+      this.replaceWith(ph);
+    });
+    img.addEventListener('click', () => openLightboxFromSrc(src));
+    photoContainer.appendChild(img);
+  });
 
   document.getElementById('modal-overlay').classList.add('open');
 }
