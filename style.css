@@ -108,6 +108,14 @@ body {
   align-items: center;
 }
 
+.reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.reset-btn:hover { background: var(--gold); border-color: var(--gold); color: #fff; }
+
 /* Count-filter pills (replace both stat-pill + filter buttons) */
 .count-pill {
   display: flex;
@@ -574,6 +582,42 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 }
 .modal-close-abs:hover { border-color: var(--rose); color: var(--rose); background: #fff; }
 
+/* Prev / Next profile navigation buttons */
+.modal-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.9);
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.modal-nav-btn:hover { border-color: var(--gold); color: var(--gold); background: #fff; }
+.modal-nav-prev { left: -56px; }
+.modal-nav-next { right: -56px; }
+
+@media (max-width: 1080px) {
+  .modal-nav-btn {
+    top: auto;
+    bottom: 14px;
+    transform: none;
+    width: 36px; height: 36px;
+    font-size: 18px;
+  }
+  .modal-nav-prev { left: 12px; }
+  .modal-nav-next { right: 12px; }
+}
+
 /* Scrollable body */
 .modal-body {
   overflow-y: auto;
@@ -596,6 +640,7 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   justify-content: space-between;
   gap: 12px;
   padding: 18px 56px 14px 20px; /* right padding leaves room for close btn */
+  background: linear-gradient(135deg, var(--gold) 0%, var(--gold-light) 100%);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -612,19 +657,26 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   font-family: 'Cormorant Garamond', serif;
   font-size: 22px;
   font-weight: 700;
-  color: var(--text);
+  color: #fff8ef;
   line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
 
 .md-banner-tag {
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 3px 10px;
   border-radius: 20px;
-  border: 1px solid;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.15);
+  color: #fff8ef;
 }
-.md-banner-tag.bride { background: rgba(168,56,64,0.08); border-color: rgba(168,56,64,0.3); color: var(--bride-color); }
-.md-banner-tag.groom { background: rgba(30,90,154,0.08); border-color: rgba(30,90,154,0.3); color: var(--groom-color); }
+.md-banner-tag.bride,
+.md-banner-tag.groom {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.4);
+  color: #fff8ef;
+}
 
 .md-banner-right {
   display: flex;
@@ -635,9 +687,18 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 
 .md-banner-reg {
   font-size: 11px;
-  color: var(--text-dim);
+  color: rgba(255,248,239,0.85);
   letter-spacing: 0.3px;
 }
+
+/* UID copy pill needs light styling against the gold banner */
+.md-banner-right .uid-copy-btn {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.4);
+}
+.md-banner-right .uid-copy-btn:hover { background: rgba(255,255,255,0.28); border-color: #fff; }
+.md-banner-right .uid-text { color: #fff8ef; }
+.md-banner-right .uid-copy-icon { color: rgba(255,248,239,0.8); }
 
 /* ── Main row: photos left + details right ───────────────────── */
 .md-main {
@@ -655,11 +716,38 @@ select.filter-btn option { background: var(--card); color: var(--text); }
   flex-direction: column;
   gap: 12px;
   padding: 16px 14px 16px 16px;
-  border-right: 1px solid var(--border);
   position: sticky;
   top: 0;
   align-self: flex-start;
 }
+
+/* Drag handle between photo column and details column */
+.md-resize-handle {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  align-self: stretch;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.md-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  border-radius: 3px;
+  background: var(--text-dim);
+  opacity: 0.4;
+}
+.md-resize-handle:hover,
+.md-resize-handle:hover::before { background: var(--gold); opacity: 1; }
+
+body.md-resizing { cursor: col-resize; user-select: none; }
+body.md-resizing .md-resize-handle { background: var(--gold); }
 
 .md-photo {
   width: 100%;
@@ -747,8 +835,10 @@ select.filter-btn option { background: var(--card); color: var(--text); }
 
   .md-main { flex-direction: column; }
 
+  .md-resize-handle { display: none; }
+
   .md-left {
-    width: 100%;
+    width: 100% !important;
     flex-direction: row;
     position: static;
     border-right: none;
