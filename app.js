@@ -453,7 +453,7 @@ async function openModal(uid) {
     let newWidth = clientX - rect.left;
     const min = 120, max = rect.width - 200;
     newWidth = Math.max(min, Math.min(max, newWidth));
-    leftCol.style.width = newWidth + 'px';
+    leftCol.style.flexBasis = newWidth + 'px';
   }
 
   // Update prev/next nav button states based on position in filtered list
