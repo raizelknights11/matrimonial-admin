@@ -120,11 +120,21 @@ function parseCSVLine(line) {
 // =====================================================================
 
 // Returns a Date from a DOB string, or null.
-// Handles: "1998", "15/08/1998", "1998-08-15", "08/15/1998", etc.
+// Handles: "1998", "15/08/1998", "1998-08-15", "08/15/1998",
+// "15 Aug 1998", "August 15, 1998", "15-Aug-1998", etc.
 function parseDOB(dob) {
   if (!dob) return null;
   const t = dob.trim();
+
   if (/^\d{4}$/.test(t)) return new Date(parseInt(t), 0, 1);
+
+  // Contains a textual month name — let Date parse it directly
+  // (handles "15 Aug 1998", "August 15, 1998", "15-Aug-1998", "Aug 15 1998")
+  if (/[A-Za-z]{3,}/.test(t)) {
+    const d = new Date(t.replace(/-/g, ' '));
+    return isNaN(d) ? null : d;
+  }
+
   const parts = t.split(/[\/\-\s]/);
   let d;
   if (parts.length === 3) {
@@ -141,6 +151,16 @@ function getAge(dob) {
   if (!d) return '—';
   const age = Math.floor((Date.now() - d) / (365.25 * 24 * 60 * 60 * 1000));
   return age > 0 && age < 120 ? age + ' yrs' : '—';
+}
+
+// Always display DOB as DD/MM/YYYY, converting textual months ("15 Aug 1998") too
+function formatDOB(dob) {
+  const d = parseDOB(dob);
+  if (!d) return dob || '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 // =====================================================================
@@ -224,7 +244,7 @@ function getOrCreateCard(p) {
         <div class="detail-section">
           <div class="section-label">Personal</div>
           <div class="detail-grid">
-            <div class="detail-item"><div class="detail-key">DOB</div><div class="detail-val">${p['Date Of Birth'] || '—'}</div></div>
+            <div class="detail-item"><div class="detail-key">DOB</div><div class="detail-val">${formatDOB(p['Date Of Birth'])}</div></div>
             <div class="detail-item"><div class="detail-key">Birth Place</div><div class="detail-val">${p['Place of Birth'] || '—'}</div></div>
             <div class="detail-item"><div class="detail-key">Gothra</div><div class="detail-val">${p['Gothra'] || '—'}</div></div>
             <div class="detail-item"><div class="detail-key">Sub-Caste</div><div class="detail-val">${p['Sub Caste'] || '—'}</div></div>
@@ -314,9 +334,13 @@ function prevSlide(id) {
 // PROFILE DETAIL MODAL
 // =====================================================================
 
+let _modalIndex = -1;  // current position within `filtered` for prev/next nav
+
 async function openModal(uid) {
   const p = allProfiles.find(x => x['Unique ID'].trim() === uid);
   if (!p) return;
+
+  _modalIndex = filtered.findIndex(x => x['Unique ID'].trim() === uid);
 
   const isBride = p['Filling the Form Of'] === 'Bride';
   const type    = isBride ? 'bride' : 'groom';
@@ -339,7 +363,7 @@ async function openModal(uid) {
     .map(([k, v]) => `
       <div class="md-row">
         <div class="md-key">${k.replace(/\s+/g, ' ').trim()}</div>
-        <div class="md-val">${v}</div>
+        <div class="md-val">${k === 'Date Of Birth' ? formatDOB(v) : v}</div>
       </div>`).join('');
 
   const photo1 = driveThumbUrl(p['Photo 1 - of Bride or Groom'], 'w600');
@@ -366,6 +390,7 @@ async function openModal(uid) {
       </div>
       <div class="md-main">
         <div class="md-left" id="md-photos"></div>
+        <div class="md-resize-handle" id="md-resize-handle" title="Drag to resize"></div>
         <div class="md-right">
           <div class="md-grid">${detailRows}</div>
           <div class="md-horo-row">${horoBtn}</div>
@@ -397,11 +422,58 @@ async function openModal(uid) {
     photoContainer.appendChild(img);
   });
 
+  // Resizable column divider — drag to adjust photo column width
+  const resizeHandle = document.getElementById('md-resize-handle');
+  const leftCol = document.getElementById('md-photos');
+  const mainRow = leftCol.closest('.md-main');
+
+  resizeHandle.addEventListener('mousedown', startResize);
+  resizeHandle.addEventListener('touchstart', startResize, { passive: false });
+
+  function startResize(e) {
+    e.preventDefault();
+    document.body.classList.add('md-resizing');
+    const move = ev => doResize(ev);
+    const stop = () => {
+      document.body.classList.remove('md-resizing');
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchmove', move);
+      document.removeEventListener('touchend', stop);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', move, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+
+  function doResize(ev) {
+    const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+    const rect = mainRow.getBoundingClientRect();
+    let newWidth = clientX - rect.left;
+    const min = 120, max = rect.width - 200;
+    newWidth = Math.max(min, Math.min(max, newWidth));
+    leftCol.style.width = newWidth + 'px';
+  }
+
+  // Update prev/next nav button states based on position in filtered list
+  const prevBtn = document.getElementById('modal-prev-btn');
+  const nextBtn = document.getElementById('modal-next-btn');
+  prevBtn.style.visibility = _modalIndex > 0 ? 'visible' : 'hidden';
+  nextBtn.style.visibility = (_modalIndex >= 0 && _modalIndex < filtered.length - 1) ? 'visible' : 'hidden';
+
   document.getElementById('modal-overlay').classList.add('open');
 }
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function navigateModal(dir) {
+  const newIndex = _modalIndex + dir;
+  if (newIndex < 0 || newIndex >= filtered.length) return;
+  const next = filtered[newIndex];
+  openModal(next['Unique ID'].trim());
 }
 
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
@@ -439,8 +511,32 @@ document.querySelectorAll('.count-pill[data-filter]').forEach(btn => {
 });
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeLightbox(); }
+  if (e.key === 'Escape') { closeModal(); closeLightbox(); closeHoroscopeLightbox(); }
+
+  // Arrow-key navigation between profiles — only when the detail modal is
+  // open and no photo/horoscope lightbox is on top of it
+  const modalOpen = document.getElementById('modal-overlay').classList.contains('open');
+  const lbOpen    = document.getElementById('lightbox-overlay').classList.contains('open');
+  const horoOpen  = document.getElementById('horo-lightbox').classList.contains('open');
+  if (modalOpen && !lbOpen && !horoOpen) {
+    if (e.key === 'ArrowRight') navigateModal(1);
+    if (e.key === 'ArrowLeft')  navigateModal(-1);
+  }
 });
+
+function resetFilters() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-clear').classList.remove('visible');
+  document.getElementById('caste-filter').value = '';
+  document.getElementById('location-filter').value = '';
+  document.getElementById('sort-select').value = 'dob_desc';
+
+  document.querySelectorAll('.count-pill[data-filter]').forEach(b => b.classList.remove('active'));
+  document.getElementById('pill-all').classList.add('active');
+  activeFilter = 'all';
+
+  applyFilters();
+}
 
 function applyFilters() {
   const search   = document.getElementById('search-input').value.toLowerCase().trim();
