@@ -57,7 +57,9 @@
       <option value="dob_desc" selected>Birth Year: Youngest</option>
     </select>
 
-    <div class="controls-actions"></div>
+    <div class="controls-actions">
+      <button class="filter-btn reset-btn" id="reset-btn" onclick="resetFilters()" title="Reset all filters">↺ Reset</button>
+    </div>
   </div>
 </div>
 
@@ -75,6 +77,8 @@
 <!-- Profile Detail Modal -->
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
+    <button class="modal-nav-btn modal-nav-prev" id="modal-prev-btn" onclick="navigateModal(-1)" title="Previous profile">‹</button>
+    <button class="modal-nav-btn modal-nav-next" id="modal-next-btn" onclick="navigateModal(1)" title="Next profile">›</button>
     <button class="modal-close modal-close-abs" onclick="closeModal()">✕</button>
     <div class="modal-body" id="modal-body"></div>
   </div>
